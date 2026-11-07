@@ -8,6 +8,9 @@ from rtctools.util import run_optimization_problem
 
 
 class Example(HomotopyMixin, CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
+    # ODE route: the semi-implicit friction term can only be evaluated close to the solution
+    fmu_seed_from_inputs = {f"Channel.Q[{i}]": "Inflow_Q" for i in range(2, 12)}
+
     def parameters(self, ensemble_member):
         p = super().parameters(ensemble_member)
         times = self.times()
