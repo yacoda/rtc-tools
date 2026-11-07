@@ -724,11 +724,11 @@ class CollocatedIntegratedOptimizationProblem(OptimizationProblem, metaclass=ABC
         # Inline constant parameter values
         if constant_parameters:
             delayed_feedback_expressions = ca.substitute(
-                delayed_feedback_expressions, constant_parameters, constant_parameter_values
+                list(delayed_feedback_expressions), constant_parameters, constant_parameter_values
             )
 
             delayed_feedback_durations = ca.substitute(
-                delayed_feedback_durations, constant_parameters, constant_parameter_values
+                list(delayed_feedback_durations), constant_parameters, constant_parameter_values
             )
 
             path_objective, path_constraint_expressions = ca.substitute(
