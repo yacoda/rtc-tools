@@ -136,16 +136,15 @@ class FMUDescription:
             else [self.by_vr[int(e.get("valueReference"))].name for e in ms.findall("Output")]
         )
 
-        # fmi-ls-dae manifest
+        # fmi-ls-dae manifest. Without it, the FMU is a plain ODE FMU (see FMUOdeMixin).
         mf_path = os.path.join(self.folder, LS_DAE_MANIFEST)
-        if not os.path.exists(mf_path):
-            raise ValueError(
-                f"FMU {fmu_path} has no fmi-ls-dae manifest ({LS_DAE_MANIFEST}); "
-                "export it with OpenModelica --daeMode"
-            )
-        mf_root = DefusedElementTree.parse(mf_path).getroot()
+        self.has_ls_dae_manifest = os.path.exists(mf_path)
         self.dae_residuals = []
         self.initial_residuals = []
+        self.dae_mode_parameter = None
+        if not self.has_ls_dae_manifest:
+            return
+        mf_root = DefusedElementTree.parse(mf_path).getroot()
         for r in mf_root.iter("Residual"):
             name = self.by_vr[int(r.get("valueReference"))].name
             if name.startswith("_D_INITres"):
@@ -200,9 +199,10 @@ class FMUDescription:
         open(self.__md_path, "w", encoding="utf-8").write(_add_outputs(text, new_outputs))
         # The manifest's ModelStructure replaces the Output elements of modelDescription.xml
         mf_path = os.path.join(self.folder, LS_DAE_MANIFEST)
-        mf_text = open(mf_path, encoding="utf-8").read()
-        if "<ModelStructure" in mf_text:
-            open(mf_path, "w", encoding="utf-8").write(_add_outputs(mf_text, new_outputs))
+        if self.has_ls_dae_manifest:
+            mf_text = open(mf_path, encoding="utf-8").read()
+            if "<ModelStructure" in mf_text:
+                open(mf_path, "w", encoding="utf-8").write(_add_outputs(mf_text, new_outputs))
         self.outputs = names_unique(self.outputs + list(names))
 
     def evaluate(self, start_values: dict, names: list[str]) -> dict:
