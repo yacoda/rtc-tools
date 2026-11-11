@@ -4,8 +4,8 @@ Used by tests/routes: on PYTHONPATH, with RTCTOOLS_ROUTE (JSON, the route option
 RTCTOOLS_ROUTE_RECORD (a folder) in the environment.
 
 Each call of run_optimization_problem or run_simulation_problem is recorded in
-<record>/<index>/: the CSV files of the output folder after the call, and status.json with the
-problem class, the solver status and the objective value.
+<record>/<index>/: the CSV files of the output folder after the call, with its subfolders, in
+csv/, and status.json with the problem class, the solver status and the objective value.
 """
 
 import json
@@ -62,8 +62,11 @@ def _recorded(run):
             status["objective"] = None
         output_folder = Path(getattr(problem, "_output_folder", "") or "")
         if output_folder.is_dir():
-            for csv in output_folder.glob("*.csv"):
-                shutil.copy(csv, folder / csv.name)
+            # Also in subfolders: ensemble members write to output/<member>/
+            for csv in output_folder.rglob("*.csv"):
+                target = folder / "csv" / csv.relative_to(output_folder)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(csv, target)
         (folder / "status.json").write_text(json.dumps(status, indent=1))
         return problem
 
