@@ -154,6 +154,9 @@ def test_environment():
         result = subprocess.run([rumoca, "targets"], capture_output=True, text=True)
         if "casadi-dae" not in result.stdout + result.stderr:
             missing.append("rumoca without the casadi-dae target")
+    include = os.environ.get("RTCTOOLS_FMI3_INCLUDE", "")
+    if not include or not os.path.isfile(os.path.join(include, "fmi3Functions.h")):
+        missing.append("FMI 3 headers for Rumoca's source FMUs (RTCTOOLS_FMI3_INCLUDE)")
     if not shutil.which("lacemodelica"):
         missing.append("lacemodelica on the PATH")
     result = subprocess.run(
