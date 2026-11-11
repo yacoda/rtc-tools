@@ -68,6 +68,12 @@ class SingleReservoir(
     def path_goals(self):
         return [VolumeRangeGoal(), MinimizeChangeInQpumpGoal()]
 
+    def solver_options(self):
+        options = super().solver_options()
+        # IPOPT's default tol stops before the model routes agree (pymoca, Base Modelica, FMU)
+        options.setdefault("ipopt", {})["tol"] = 1e-11
+        return options
+
 
 # Run
 # First optimize for 0 time steps to check initial conditions.

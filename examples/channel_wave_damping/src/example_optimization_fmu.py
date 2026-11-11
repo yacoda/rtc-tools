@@ -48,6 +48,12 @@ class ExampleOptimization(
             TargetLevelGoal("dam_middle.HQUp.H", 15.0),
         ]
 
+    def solver_options(self):
+        options = super().solver_options()
+        # IPOPT's default tol stops before the model routes agree (pymoca, Base Modelica, FMU)
+        options.setdefault("ipopt", {})["tol"] = 1e-11
+        return options
+
 
 # Run
 run_optimization_problem(ExampleOptimization)

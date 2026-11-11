@@ -41,6 +41,8 @@ class Example(HomotopyMixin, CSVMixin, ModelicaMixin, CollocatedIntegratedOptimi
     def solver_options(self):
         options = super().solver_options()
         options["solver"] = "ipopt"
+        # IPOPT's default tol stops before the model routes agree (pymoca, Base Modelica, FMU)
+        options.setdefault("ipopt", {})["tol"] = 1e-11
         return options
 
 
