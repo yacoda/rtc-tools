@@ -13,6 +13,7 @@ from rtctools._internal.ensemble_bounds_decorator import ensemble_bounds_check
 from rtctools._internal.fmu_description import FMUDescription
 
 from ._fmu_dae import (
+    _BONMIN_PATIENT,
     _HESSIAN_OF_ANALYTIC,
     _HESSIAN_OF_DIFFERENCES,
     _JACOBIAN_ONLY,
@@ -34,14 +35,6 @@ _INITIAL_RESIDUAL = re.compile(r"_INITres\d*\Z")
 
 _ANALYTIC = {"uses_directional_derivatives": True, "uses_adjoint_derivatives": False}
 _FINITE_DIFFERENCES = {"uses_directional_derivatives": False, "uses_adjoint_derivatives": False}
-_BONMIN_PATIENT = {
-    "expect_infeasible_problem": "no",
-    "required_infeasibility_reduction": 0.9,
-    "mu_strategy": "monotone",
-    "mu_oracle": "quality-function",
-    "gamma_phi": 1e-8,
-    "gamma_theta": 1e-5,
-}
 
 
 class _FMUOdeMixin(OptimizationProblem):

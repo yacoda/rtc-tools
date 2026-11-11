@@ -40,6 +40,15 @@ _JACOBIAN_ONLY = {"enable_forward": False, "enable_reverse": False}
 # model may not be defined far away. A Jacobian that is itself a finite difference needs more.
 _HESSIAN_OF_ANALYTIC = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-6}}
 _HESSIAN_OF_DIFFERENCES = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-4}}
+# Bonmin's defaults give up on a relaxation of an FMU problem early
+_BONMIN_PATIENT = {
+    "expect_infeasible_problem": "no",
+    "required_infeasibility_reduction": 0.9,
+    "mu_strategy": "monotone",
+    "mu_oracle": "quality-function",
+    "gamma_phi": 1e-8,
+    "gamma_theta": 1e-5,
+}
 
 
 def _with_derivative_options(opts):
@@ -239,6 +248,20 @@ class _FMUDaeMixin(OptimizationProblem):
                 )
         self.__fmu_x, self.__fmu_z, self.__fmu_u, self.__fmu_y = fmu_x, fmu_z, fmu_u, fmu_y
         self.__der_of = der_of
+        # Boolean inputs are not FMU inputs for DaeBuilder: as on the ODE route, they are
+        # optimization variables that are not passed to the FMU, right for a model that does not
+        # use them in its equations
+        boolean_inputs = [
+            v.name
+            for v in desc.variables.values()
+            if v.causality == "input" and v.type == "Boolean"
+        ]
+        if boolean_inputs:
+            logger.warning(
+                f"FMUMixin: the Boolean inputs {boolean_inputs} are not passed to the FMU; "
+                "this assumes that the equations do not use them."
+            )
+        self.__boolean_inputs = boolean_inputs
 
         # Inputs: plain inputs and input derivatives der(u)
         self.__input_derivative_of = {}
@@ -284,10 +307,14 @@ class _FMUDaeMixin(OptimizationProblem):
         if not self.fmu_free_initial_input_derivatives:
             constant_input_names |= set(self.__input_derivative_of)
         self.__mx["control_inputs"] = [
-            sym.setdefault(n, ca.MX.sym(n)) for n in fmu_u if n not in constant_input_names
+            sym.setdefault(n, ca.MX.sym(n))
+            for n in fmu_u + boolean_inputs
+            if n not in constant_input_names
         ]
         self.__mx["constant_inputs"] = [
-            sym.setdefault(n, ca.MX.sym(n)) for n in fmu_u if n in constant_input_names
+            sym.setdefault(n, ca.MX.sym(n))
+            for n in fmu_u + boolean_inputs
+            if n in constant_input_names
         ]
         self.__mx["lookup_tables"] = []
         self.__mx["string_parameters"] = []
@@ -528,7 +555,7 @@ class _FMUDaeMixin(OptimizationProblem):
                 columns = {c.strip() for c in header[1:]}
                 return [
                     n
-                    for n in self.__fmu_u
+                    for n in self.__fmu_u + self.__boolean_inputs
                     if n in columns or any(a in columns for a in self.__fmu.variables[n].aliases)
                 ]
         logger.warning(
@@ -573,6 +600,9 @@ class _FMUDaeMixin(OptimizationProblem):
         options = super().solver_options()
         if options.get("solver") == "ipopt" and not self.fmu_exact_hessian:
             options["ipopt"].setdefault("hessian_approximation", "limited-memory")
+        if options.get("solver") == "bonmin":
+            for key, value in _BONMIN_PATIENT.items():
+                options["bonmin"].setdefault(key, value)
         # Each forward sweep through an FMU call evaluates that call's full Jacobian (see
         # _JACOBIAN_ONLY): many directions per sweep in the DAE functions (max_num_dir)
         options["optimized_num_dir"] = max(options.get("optimized_num_dir", 0), 64)
@@ -622,6 +652,8 @@ class _FMUDaeMixin(OptimizationProblem):
             v = self.__fmu.variables[n]
             m, M = bounds.get(n, (-np.inf, np.inf))
             bounds[n] = (max(m, v.min), min(M, v.max))
+        for n in self.__boolean_inputs:
+            bounds[n] = bounds.get(n, (0.0, 1.0))
         for d in self.__pinned_derivatives:
             times, values = self.__pinned_derivative(d, ensemble_member or 0)
             lower, upper = values.copy(), values.copy()
@@ -654,7 +686,8 @@ class _FMUDaeMixin(OptimizationProblem):
         return seed
 
     def variable_is_discrete(self, variable):
-        return False
+        canonical, _ = self.alias_relation.canonical_signed(variable)
+        return canonical in self.__boolean_inputs
 
     @property
     @cached
