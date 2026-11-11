@@ -27,8 +27,10 @@ class Example(HomotopyMixin, CSVMixin, ModelicaMixin, CollocatedIntegratedOptimi
         parameters = self.parameters(ensemble_member)
         n_level_nodes = int(parameters["Channel.n_level_nodes"])
 
-        # To Mimic HEC-RAS behaviour, enforce steady state both at t0 and at t1.
-        for i in range(n_level_nodes):
+        # To Mimic HEC-RAS behaviour, enforce steady state both at t0 and at t1. With the
+        # flows at t0 and the boundary conditions, the steady state of the last node follows
+        # from the others, so its constraint would only make the problem rank-deficient.
+        for i in range(n_level_nodes - 1):
             state = f"Channel.H[{i + 1}]"
             constraints.append(
                 (self.state_at(state, times[0]) - self.state_at(state, times[1]), 0, 0)
