@@ -9,6 +9,8 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
+import zipfile
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 
@@ -251,4 +253,44 @@ def _export_rumoca(output, model_folder, model_name, library_dirs, work, flags):
         raise RuntimeError(
             f"Rumoca did not export {model_name}:\n{result.stdout[-3000:]}{result.stderr[-2000:]}"
         )
+    if output != "basemodelica":
+        # Rumoca's FMUs hold C sources only
+        _build_source_fmu(out, Path(work) / "fmu-build")
     return out
+
+
+def _build_source_fmu(fmu, work):
+    """Compile the C sources of a source-code FMU into its binary for this platform, in place.
+
+    The sources and defines come from sources/buildDescription.xml (FMI 3.0, 2.4.10). The FMI 3
+    headers are taken from RTCTOOLS_FMI3_INCLUDE, and the C compiler from CC (default cc).
+    """
+    include = os.environ.get("RTCTOOLS_FMI3_INCLUDE")
+    if not include or not (Path(include) / "fmi3Functions.h").is_file():
+        raise FileNotFoundError(
+            f"{fmu} holds C sources only. Compiling them needs the FMI 3 headers: set "
+            "RTCTOOLS_FMI3_INCLUDE to a folder with fmi3Functions.h"
+        )
+    work.mkdir()
+    with zipfile.ZipFile(fmu) as z:
+        z.extractall(work)
+    config = ET.parse(work / "sources" / "buildDescription.xml").find("BuildConfiguration")
+    identifier = config.get("modelIdentifier")
+    sources, defines = [], []
+    for file_set in config.iter("SourceFileSet"):
+        sources += [str(work / "sources" / f.get("name")) for f in file_set.iter("SourceFile")]
+        for d in file_set.iter("PreprocessorDefinition"):
+            value = d.get("value")
+            defines.append(f"-D{d.get('name')}" + (f"={value}" if value is not None else ""))
+    binary = work / "binaries" / "x86_64-linux" / f"{identifier}.so"
+    binary.parent.mkdir(parents=True)
+    command = shlex.split(os.environ.get("CC", "cc")) + ["-shared", "-fPIC", "-O2", "-std=c99"]
+    command += ["-I", str(work / "sources"), "-I", include] + defines + sources
+    command += ["-o", str(binary), "-lm"]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Compiling the sources of {fmu} failed:\n{result.stderr[-3000:]}")
+    with zipfile.ZipFile(fmu, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(work.rglob("*")):
+            if f.is_file():
+                z.write(f, f.relative_to(work))

@@ -3,6 +3,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -148,25 +149,68 @@ class ExportTest(unittest.TestCase):
                 )
 
     def test_rumoca(self):
-        # Stands in for rumoca: writes into the --output folder, as Rumoca does
+        # Stands in for rumoca: writes into the --output folder, as Rumoca does; its FMU holds
+        # C sources only, as Rumoca's do
         rumoca = self.folder / "rumoca.py"
         rumoca.write_text(
-            "import sys, pathlib\n"
-            "a = sys.argv\n"
-            "out = pathlib.Path(a[a.index('--output') + 1])\n"
-            "out.mkdir()\n"
-            "model = a[a.index('--model') + 1]\n"
-            "target = a[a.index('--target') + 1]\n"
-            "name = model + ('_base.mo' if target == 'base-modelica' else '.fmu')\n"
-            "(out / name).write_text(target)\n"
+            textwrap.dedent(
+                """
+                import sys, pathlib, zipfile
+                a = sys.argv
+                out = pathlib.Path(a[a.index("--output") + 1])
+                out.mkdir()
+                model = a[a.index("--model") + 1]
+                if a[a.index("--target") + 1] == "base-modelica":
+                    (out / (model + "_base.mo")).write_text("base-modelica")
+                else:
+                    build = (
+                        '<fmiBuildDescription fmiVersion="3.0">'
+                        '<BuildConfiguration modelIdentifier="M_id">'
+                        '<SourceFileSet language="C99"><SourceFile name="model.c"/>'
+                        '<PreprocessorDefinition name="ANSWER" value="42"/>'
+                        "</SourceFileSet></BuildConfiguration></fmiBuildDescription>"
+                    )
+                    with zipfile.ZipFile(out / (model + ".fmu"), "w") as z:
+                        z.writestr("modelDescription.xml", "<fmiModelDescription/>")
+                        z.writestr("sources/buildDescription.xml", build)
+                        z.writestr(
+                            "sources/model.c",
+                            '#include "fmi3Functions.h"\\nint answer(void) { return ANSWER; }\\n',
+                        )
+                """
+            )
         )
-        with mock.patch.dict(os.environ, {"RTCTOOLS_RUMOCA": f"{sys.executable} {rumoca}"}):
+        headers = self.folder / "fmi3"
+        headers.mkdir()
+        (headers / "fmi3Functions.h").write_text("/* FMI 3 headers */\n")
+        environment = {
+            "RTCTOOLS_RUMOCA": f"{sys.executable} {rumoca}",
+            "RTCTOOLS_FMI3_INCLUDE": str(headers),
+        }
+        with mock.patch.dict(os.environ, environment):
             bmo = model_routes.export_model(
                 "rumoca", "basemodelica", self.models, "Model", [], self.models
             )
             fmu = model_routes.export_model("rumoca", "ode", self.models, "Model", [], self.models)
         self.assertEqual((bmo.name, bmo.read_text()), ("Model.bmo", "base-modelica"))
-        self.assertEqual((fmu.name, fmu.read_text()), ("Model.fmu", "fmi3"))
+        self.assertEqual(fmu.name, "Model.fmu")
+        with zipfile.ZipFile(fmu) as z:
+            self.assertIn("binaries/x86_64-linux/M_id.so", z.namelist())
+            self.assertIn("sources/model.c", z.namelist())
+
+    def test_rumoca_fmu_without_headers(self):
+        rumoca = self.folder / "rumoca.py"
+        rumoca.write_text(
+            "import sys, pathlib, zipfile\n"
+            "a = sys.argv\n"
+            "out = pathlib.Path(a[a.index('--output') + 1])\n"
+            "out.mkdir()\n"
+            "zipfile.ZipFile(out / 'Model.fmu', 'w').writestr('sources/model.c', '')\n"
+        )
+        environment = {"RTCTOOLS_RUMOCA": f"{sys.executable} {rumoca}", "RTCTOOLS_FMI3_INCLUDE": ""}
+        with mock.patch.dict(os.environ, environment):
+            with self.assertRaisesRegex(FileNotFoundError, "RTCTOOLS_FMI3_INCLUDE"):
+                model_routes.export_model("rumoca", "ode", self.models, "Model", [], self.models)
 
     def test_main_file(self):
         self.assertEqual(
