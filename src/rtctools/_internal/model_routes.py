@@ -179,9 +179,9 @@ def _command(variable, default):
     return shlex.split(os.environ.get(variable, default))
 
 
-def _run(command, work, what):
+def _run(command, work, what, env=None):
     try:
-        result = subprocess.run(command, cwd=work, capture_output=True, text=True)
+        result = subprocess.run(command, cwd=work, capture_output=True, text=True, env=env)
     except FileNotFoundError as error:
         raise FileNotFoundError(f"{what}: {error}. Install it or set the command") from error
     return result
@@ -245,11 +245,17 @@ def _export_rumoca(output, model_folder, model_name, library_dirs, work, flags):
     out = folder / produced
 
     def compile(main):
-        roots = [f for f in _modelica_files(Path(main).parent) if f != main] + list(library_dirs)
+        # Rumoca loads the other files of the model's folder itself; passing them as source roots
+        # too declares their classes twice, under another spelling of the path
         command = _command("RTCTOOLS_RUMOCA", "rumoca") + ["compile", main, "--model", model_name]
-        command += [arg for root in roots for arg in ("--source-root", root)]
+        command += [arg for root in library_dirs for arg in ("--source-root", str(root))]
         command += ["--target", RUMOCA_TARGETS[output], "--output", str(folder)]
-        return _run(command + list(flags or []), work, "Rumoca (RTCTOOLS_RUMOCA, default rumoca)")
+        # As in the Rumoca loader: rtc-tools sets parameters at run time, so a parameter guard
+        # must stay a run-time branch
+        env = dict(os.environ, RUMOCA_RETAIN_PARAMETER_BRANCHES="1")
+        return _run(
+            command + list(flags or []), work, "Rumoca (RTCTOOLS_RUMOCA, default rumoca)", env
+        )
 
     main = _main_file(model_folder, model_name)
     result = compile(main)
