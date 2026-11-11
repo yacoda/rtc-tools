@@ -41,6 +41,14 @@ HOOK = Path(__file__).resolve().parent / "hook"
 
 TOLERANCE = 1e-4
 TIMEOUT = 3600
+# Known time-outs get a shorter limit, so that a run of the matrix does not wait for them
+SHORT_TIMEOUT = {
+    (d, "fmu-dae-openmodelica"): 600
+    for d in (
+        "channel_wave_damping/src/example_local_control.py",
+        "channel_wave_damping/src/example_optimization.py",
+    )
+}
 
 REFERENCE = "pymoca"
 
@@ -108,8 +116,28 @@ _UNDERDETERMINED_FMU = (
     "left to rtc-tools), and an FMU must be balanced; the ODE experiment edited the model"
 )
 
+_FMI3_ARRAYS = (
+    "OpenModelica's ODE FMU export has FMI 3 array variables (der(middle.H), <Dimension>); "
+    "FMUMixin reads scalar variables only"
+)
+_WAVE_DAMPING = (
+    "channel_wave_damping/src/example_local_control.py",
+    "channel_wave_damping/src/example_optimization.py",
+)
+
 # (driver, route): cause. Strict xfails.
 KNOWN_FAILURES = {
+    **{(d, "bmo-rumoca-pymoca"): _NO_FUNCTIONS for d in _WAVE_DAMPING},
+    **{(d, "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE for d in _WAVE_DAMPING},
+    **{(d, "fmu-ode-rumoca"): _SINGULAR for d in _WAVE_DAMPING},
+    **{(d, "fmu-ode-openmodelica"): _FMI3_ARRAYS for d in _WAVE_DAMPING},
+    **{
+        (d, "fmu-dae-openmodelica"): (
+            "times out in IPOPT, also without the finite-difference Hessian; FMUs of the "
+            "earlier OpenModelica and CasADi builds solved it (local control: 1.6e-11); not traced"
+        )
+        for d in _WAVE_DAMPING
+    },
     ("pumped_hydropower_system/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
     ("pumped_hydropower_system/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
     ("pumped_hydropower_system/src/example.py", "fmu-ode-rumoca"): (
@@ -289,7 +317,7 @@ def _run(driver, route, work):
             env=env,
             capture_output=True,
             text=True,
-            timeout=TIMEOUT,
+            timeout=SHORT_TIMEOUT.get((driver, route), TIMEOUT),
         )
         log, returncode = result.stdout + result.stderr, result.returncode
     except subprocess.TimeoutExpired as error:
@@ -319,6 +347,25 @@ def _read_csv(path):
         except ValueError:
             pass
     return columns
+
+
+_SOLVE_TIME = re.compile(r"Solver (?:succeeded|failed) with status \S+ \(([0-9.eE+-]+) seconds\)")
+
+
+def _solve_seconds(log):
+    """Total time of the solves that rtc-tools logged"""
+    return sum(float(t) for t in _SOLVE_TIME.findall(log))
+
+
+def _note_timing(driver, route, log, outcome):
+    """Append the solve time of a run to RTCTOOLS_ROUTES_TIMINGS (JSON lines), if set"""
+    path = os.environ.get("RTCTOOLS_ROUTES_TIMINGS")
+    if path:
+        entry = {"driver": driver, "route": route, "seconds": _solve_seconds(log)}
+        entry["solves"] = len(_SOLVE_TIME.findall(log))
+        entry["outcome"] = outcome
+        with open(path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
 
 def _too_few_degrees_of_freedom(log):
@@ -414,6 +461,7 @@ def _reference(driver, tmp_path_factory):
         work = tmp_path_factory.mktemp("reference")
         returncode, log, records = _run(driver, REFERENCE, work)
         problems = _problems(returncode, log, records)
+        _note_timing(driver, REFERENCE, log, "fail" if problems else "pass")
         _references[driver] = (problems, records, _too_few_degrees_of_freedom(log))
     return _references[driver]
 
@@ -434,6 +482,8 @@ def test_route(driver, route, tmp_path, tmp_path_factory):
             f"IPOPT: Too few degrees of freedom in {deficient} solves, the reference has "
             f"{reference_deficient}"
         )
+    if problems:
+        _note_timing(driver, route, log, "fail")
     assert not problems, f"{driver} on {route} (log: {tmp_path / 'log.txt'}):\n" + "\n".join(
         problems
     )
@@ -441,6 +491,7 @@ def test_route(driver, route, tmp_path, tmp_path_factory):
         differences = _objective_differences(reference, records)
     else:
         differences = _differences(reference, records)
+    _note_timing(driver, route, log, "fail" if differences else "pass")
     assert not differences, f"{driver} on {route} differs from {REFERENCE}:\n" + "\n".join(
         differences[:20]
     )
