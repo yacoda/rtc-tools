@@ -7,6 +7,8 @@ source "${VENV:-$INTEGRATION/venv}/bin/activate"
 export RTCTOOLS_OMC="$_here/omc.sh"
 export OM_INTEGRATION=${OM_INTEGRATION:-$(cd "$INTEGRATION/../OpenModelica/om-integration" && pwd)}
 export RTCTOOLS_RUMOCA="$INTEGRATION/rumoca/target/release/rumoca"
-# lacemodelica (yacoda/lacemodelica main and the rtc-tools frontend branch)
-export PATH="${LACEMODELICA_BIN:-/home/yacoda/programs/lacemodelica-rtc/build}:$PATH"
+# FMI 3 headers to compile the C sources of Rumoca's FMUs (Rumoca ships a copy)
+export RTCTOOLS_FMI3_INCLUDE="$INTEGRATION/rumoca/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"
+# lacemodelica of its rtc-integration branch
+export PATH="${LACEMODELICA_BIN:-$INTEGRATION/lacemodelica/build}:$PATH"
 unset _here
