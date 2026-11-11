@@ -136,7 +136,7 @@ class FMUDescription:
             else [self.by_vr[int(e.get("valueReference"))].name for e in ms.findall("Output")]
         )
 
-        # fmi-ls-dae manifest. Without it, the FMU is a plain ODE FMU (see FMUOdeMixin).
+        # fmi-ls-dae manifest. Without it, the FMU is a plain ODE FMU (model_format="ode").
         mf_path = os.path.join(self.folder, LS_DAE_MANIFEST)
         self.has_ls_dae_manifest = os.path.exists(mf_path)
         self.dae_residuals = []

@@ -1,19 +1,24 @@
 import copy
-import importlib.resources
 import itertools
 import logging
 import math
 from collections import OrderedDict
-from importlib import metadata as importlib_metadata
 
 import casadi as ca
 import numpy as np
 import pymoca
 import pymoca.backends.casadi.api
 
+from rtctools._internal import model_routes
 from rtctools._internal.alias_tools import AliasDict
 from rtctools._internal.caching import cached
 from rtctools._internal.debug_check_helpers import DebugLevel
+from rtctools._internal.model_routes import (
+    check_modelica_route,
+    export_model,
+    model_loader,
+    route_option,
+)
 from rtctools.data.storage import DataStoreAccessor
 
 logger = logging.getLogger("rtctools")
@@ -53,6 +58,10 @@ class SimulationProblem(DataStoreAccessor):
     :cvar modelica_library_folders: Folders containing any referenced Modelica libraries. Default
         is an empty list.
 
+        :cvar model_format: As for :py:class:`ModelicaMixin`.
+    :cvar model_compiler: As for :py:class:`ModelicaMixin`.
+    :cvar model_exporter: As for :py:class:`ModelicaMixin`.
+    :cvar model_exporter_flags: As for :py:class:`ModelicaMixin`.
     """
 
     _debug_check_level = DebugLevel.MEDIUM
@@ -60,6 +69,12 @@ class SimulationProblem(DataStoreAccessor):
 
     # Folders in which the referenced Modelica libraries are found
     modelica_library_folders = []
+
+    # The route from the model to CasADi, as for ModelicaMixin
+    model_format = "modelica"
+    model_compiler = "pymoca"
+    model_exporter = None
+    model_exporter_flags = None
 
     # Force workaround for delay support by assuming zero delay. This flag
     # will be removed when proper delay support is added.
@@ -83,9 +98,23 @@ class SimulationProblem(DataStoreAccessor):
 
         # Load model from pymoca backend
         compiler_options = self.compiler_options()
+        for name in ("model_format", "model_compiler", "model_exporter", "model_exporter_flags"):
+            setattr(self, name, route_option(self, kwargs, name, getattr(SimulationProblem, name)))
+        check_modelica_route(self.model_format, self.model_compiler, self.model_exporter)
+        if self.model_exporter is not None:
+            export_model(
+                self.model_exporter,
+                "basemodelica",
+                kwargs["model_folder"],
+                model_name,
+                compiler_options["library_folders"],
+                kwargs["model_folder"],
+                self.model_exporter_flags,
+            )
+        transfer_model = model_loader(self.model_compiler, self.model_format)
         logger.info(f"Loading/compiling model {model_name}.")
         try:
-            self.__pymoca_model = pymoca.backends.casadi.api.transfer_model(
+            self.__pymoca_model = transfer_model(
                 kwargs["model_folder"], model_name, compiler_options
             )
         except RuntimeError as error:
@@ -94,7 +123,7 @@ class SimulationProblem(DataStoreAccessor):
             compiler_options["cache"] = False
             logger.warning(f"Loading model {model_name} using a cache file failed: {error}.")
             logger.info(f"Compiling model {model_name}.")
-            self.__pymoca_model = pymoca.backends.casadi.api.transfer_model(
+            self.__pymoca_model = transfer_model(
                 kwargs["model_folder"], model_name, compiler_options
             )
 
@@ -1252,11 +1281,7 @@ class SimulationProblem(DataStoreAccessor):
         compiler_options["expand_vectors"] = True
 
         # Where imported model libraries are located.
-        library_folders = self.modelica_library_folders.copy()
-
-        for ep in importlib_metadata.entry_points(group="rtctools.libraries.modelica"):
-            if ep.name == "library_folder":
-                library_folders.append(str(importlib.resources.files(ep.module).joinpath(ep.attr)))
+        library_folders = model_routes.library_folders(self.modelica_library_folders)
 
         compiler_options["library_folders"] = library_folders
 

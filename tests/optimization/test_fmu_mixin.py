@@ -39,6 +39,7 @@ class TestFMUMixin(TestCase):
 
         class Example(CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
             model_name = "Example"
+            model_format = "dae"
 
             def objective(self, ensemble_member):
                 return self.integral("Q_release", ensemble_member=ensemble_member)

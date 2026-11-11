@@ -2,8 +2,8 @@ from rtctools.optimization.collocated_integrated_optimization_problem import (
     CollocatedIntegratedOptimizationProblem,
 )
 from rtctools.optimization.csv_mixin import CSVMixin
-from rtctools.optimization.goal_programming_mixin import Goal, GoalProgrammingMixin
 from rtctools.optimization.fmu_mixin import FMUMixin
+from rtctools.optimization.goal_programming_mixin import Goal, GoalProgrammingMixin
 from rtctools.util import run_optimization_problem
 
 
@@ -46,6 +46,8 @@ class SingleReservoir(
     """
     An optimization problem involving a single reservoir.
     """
+
+    model_format = "dae"
 
     only_check_initial_values = False
 

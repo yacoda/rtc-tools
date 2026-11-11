@@ -1,7 +1,5 @@
-import importlib.resources
 import itertools
 import logging
-from importlib import metadata as importlib_metadata
 
 import casadi as ca
 import numpy as np
@@ -12,6 +10,13 @@ from rtctools._internal.alias_tools import AliasDict
 from rtctools._internal.caching import cached
 from rtctools._internal.casadi_helpers import substitute_in_external
 from rtctools._internal.ensemble_bounds_decorator import ensemble_bounds_check
+from rtctools._internal.model_routes import (
+    check_modelica_route,
+    export_model,
+    library_folders,
+    model_loader,
+    route_option,
+)
 
 from .optimization_problem import OptimizationProblem
 from .timeseries import Timeseries
@@ -28,10 +33,33 @@ class ModelicaMixin(OptimizationProblem):
     :cvar modelica_library_folders:
         Folders in which any referenced Modelica libraries are to be found.
         Default is an empty list.
+    :cvar model_format:
+        What is read from the model folder: ``"modelica"`` (default), the Modelica sources
+        (``*.mo``), or ``"basemodelica"``, the flattened model in Base Modelica
+        (``<model_name>.bmo``).
+    :cvar model_compiler:
+        What compiles the model to CasADi: ``"pymoca"`` (default), ``"rumoca"`` (Modelica sources
+        only) or ``"lacemodelica"`` (Base Modelica only).
+    :cvar model_exporter:
+        With ``model_format="basemodelica"``, what writes ``<model_name>.bmo`` from the Modelica
+        sources, on every run: ``None`` (default) reads the existing file, ``"openmodelica"``
+        runs ``omc`` and ``"rumoca"`` runs ``rumoca``. The commands can be set with the
+        environment variables ``RTCTOOLS_OMC`` and ``RTCTOOLS_RUMOCA``. An exported file is
+        only replaced when its content changes, so a hand-edited file is overwritten.
+    :cvar model_exporter_flags:
+        Command-line flags that replace the default flags of the exporter, or ``None``.
+
+    Each of these can also be passed as a keyword argument, like ``model_name``.
     """
 
     # Folders in which the referenced Modelica libraries are found
     modelica_library_folders = []
+
+    # The route from the model to CasADi
+    model_format = "modelica"
+    model_compiler = "pymoca"
+    model_exporter = None
+    model_exporter_flags = None
 
     def __init__(self, **kwargs):
         # Check arguments
@@ -48,6 +76,20 @@ class ModelicaMixin(OptimizationProblem):
                 model_name = self.model_name
             else:
                 model_name = self.__class__.__name__
+
+        for name in ("model_format", "model_compiler", "model_exporter", "model_exporter_flags"):
+            setattr(self, name, route_option(self, kwargs, name, getattr(ModelicaMixin, name)))
+        check_modelica_route(self.model_format, self.model_compiler, self.model_exporter)
+        if self.model_exporter is not None:
+            export_model(
+                self.model_exporter,
+                "basemodelica",
+                kwargs["model_folder"],
+                model_name,
+                self.compiler_options()["library_folders"],
+                kwargs["model_folder"],
+                self.model_exporter_flags,
+            )
 
         self.__pymoca_model = self.pymoca_model(
             kwargs["model_folder"], model_name, self.compiler_options()
@@ -149,7 +191,8 @@ class ModelicaMixin(OptimizationProblem):
     ) -> pymoca.backends.casadi.model.Model:
         """
         Load or compile the model named ``model_name`` from the Modelica files in
-        ``model_folder``.
+        ``model_folder``, with the compiler and format chosen by :py:attr:`model_compiler` and
+        :py:attr:`model_format`.
 
         Override this method to supply a model from elsewhere, e.g. one composed in memory.
         The model is requested once, from ``__init__``.
@@ -161,19 +204,16 @@ class ModelicaMixin(OptimizationProblem):
         :returns: A pymoca CasADi model.
         """
         logger.info(f"Loading/compiling model {model_name}.")
+        transfer_model = model_loader(self.model_compiler, self.model_format)
         try:
-            return pymoca.backends.casadi.api.transfer_model(
-                model_folder, model_name, compiler_options
-            )
+            return transfer_model(model_folder, model_name, compiler_options)
         except (RuntimeError, ModuleNotFoundError) as error:
             if not compiler_options.get("cache", False):
                 raise error
             compiler_options["cache"] = False
             logger.warning(f"Loading model {model_name} using a cache file failed: {error}.")
             logger.info(f"Compiling model {model_name}.")
-            return pymoca.backends.casadi.api.transfer_model(
-                model_folder, model_name, compiler_options
-            )
+            return transfer_model(model_folder, model_name, compiler_options)
 
     @cached
     def compiler_options(self) -> dict[str, str | bool]:
@@ -192,13 +232,7 @@ class ModelicaMixin(OptimizationProblem):
         compiler_options["expand_vectors"] = True
 
         # Where imported model libraries are located.
-        library_folders = self.modelica_library_folders.copy()
-
-        for ep in importlib_metadata.entry_points(group="rtctools.libraries.modelica"):
-            if ep.name == "library_folder":
-                library_folders.append(str(importlib.resources.files(ep.module).joinpath(ep.attr)))
-
-        compiler_options["library_folders"] = library_folders
+        compiler_options["library_folders"] = library_folders(self.modelica_library_folders)
 
         # Eliminate equations of the type 'var = const'.
         compiler_options["eliminate_constant_assignments"] = True

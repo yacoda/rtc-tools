@@ -2,12 +2,14 @@ from rtctools.optimization.collocated_integrated_optimization_problem import (
     CollocatedIntegratedOptimizationProblem,
 )
 from rtctools.optimization.csv_mixin import CSVMixin
-from rtctools.optimization.homotopy_mixin import HomotopyMixin
 from rtctools.optimization.fmu_mixin import FMUMixin
+from rtctools.optimization.homotopy_mixin import HomotopyMixin
 from rtctools.util import run_optimization_problem
 
 
 class Example(HomotopyMixin, CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
+    model_format = "dae"
+
     # ODE route: the semi-implicit friction term can only be evaluated close to the solution
     fmu_seed_from_inputs = {f"Channel.Q[{i}]": "Inflow_Q" for i in range(2, 12)}
 
