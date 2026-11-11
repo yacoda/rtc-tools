@@ -94,8 +94,27 @@ SIMULATION_DRIVERS = [
     "simulation_with_custom_equations/src/simple_model.py",
 ]
 
+# Causes shared by several examples
+_NO_FUNCTIONS = (
+    "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
+)
+_NO_FUNCTIONS_LACE = (
+    "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica has no "
+    "transpose()"
+)
+_SINGULAR = "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
+_UNDERDETERMINED_FMU = (
+    "OpenModelica refuses the FMU export: under-determined by design (104 equations, 105 "
+    "variables), and an FMU must be balanced; the ODE experiment edited the model"
+)
+
 # (driver, route): cause. Strict xfails.
 KNOWN_FAILURES = {
+    ("cascading_channels/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
+    ("cascading_channels/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
+    ("cascading_channels/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
+    ("cascading_channels/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
+    ("cascading_channels/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
     ("mixed_integer/src/example.py", "fmu-dae-openmodelica"): (
         "Bonmin: the continuous relaxation is infeasible (violation 71.4); not traced. The ODE "
         "FMU route of the same model solves"
@@ -116,38 +135,24 @@ KNOWN_FAILURES = {
         )
         for route in ("fmu-ode-openmodelica", "fmu-ode-rumoca", "fmu-dae-openmodelica")
     },
-    ("channel_pulse/src/example.py", "bmo-rumoca-pymoca"): (
-        "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
-    ),
-    ("channel_pulse/src/example.py", "bmo-rumoca-lacemodelica"): (
-        "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica "
-        "has no transpose()"
-    ),
+    ("channel_pulse/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
+    ("channel_pulse/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
     ("channel_pulse/src/example.py", "fmu-ode-openmodelica"): (
         "FMU outputs fail to evaluate at the seed (the FMU driver sets fmu_seed_from_inputs), "
         "and the initial equations need _INITres outputs that a plain export lacks"
     ),
-    ("channel_pulse/src/example.py", "fmu-ode-rumoca"): (
-        "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
-    ),
+    ("channel_pulse/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
     ("channel_pulse/src/example.py", "fmu-dae-openmodelica"): (
         "use_convective_acceleration and use_inertia are fixed at export, so the variants need "
         "one FMU each (as the FMU driver has); the inertial wave runs hit invalid numbers"
     ),
-    ("step_response/src/example.py", "bmo-rumoca-pymoca"): (
-        "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
-    ),
-    ("step_response/src/example.py", "bmo-rumoca-lacemodelica"): (
-        "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica "
-        "has no transpose()"
-    ),
+    ("step_response/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
+    ("step_response/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
     ("step_response/src/example.py", "fmu-ode-openmodelica"): (
         "use_convective_acceleration is fixed at export, so ExampleSaintVenant needs its own FMU "
         "(as the FMU driver has, fmu_model_name)"
     ),
-    ("step_response/src/example.py", "fmu-ode-rumoca"): (
-        "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
-    ),
+    ("step_response/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
     ("step_response/src/example.py", "fmu-dae-openmodelica"): (
         "use_convective_acceleration is fixed at export, so ExampleSaintVenant needs its own FMU "
         "(as the FMU driver has, fmu_model_name)"
