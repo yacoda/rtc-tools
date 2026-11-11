@@ -134,6 +134,24 @@ KNOWN_FAILURES = {
         "use_convective_acceleration and use_inertia are fixed at export, so the variants need "
         "one FMU each (as the FMU driver has); the inertial wave runs hit invalid numbers"
     ),
+    ("step_response/src/example.py", "bmo-rumoca-pymoca"): (
+        "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
+    ),
+    ("step_response/src/example.py", "bmo-rumoca-lacemodelica"): (
+        "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica "
+        "has no transpose()"
+    ),
+    ("step_response/src/example.py", "fmu-ode-openmodelica"): (
+        "use_convective_acceleration is fixed at export, so ExampleSaintVenant needs its own FMU "
+        "(as the FMU driver has, fmu_model_name)"
+    ),
+    ("step_response/src/example.py", "fmu-ode-rumoca"): (
+        "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
+    ),
+    ("step_response/src/example.py", "fmu-dae-openmodelica"): (
+        "use_convective_acceleration is fixed at export, so ExampleSaintVenant needs its own FMU "
+        "(as the FMU driver has, fmu_model_name)"
+    ),
     ("goal_programming/src/example.py", "fmu-ode-rumoca"): (
         "another optimum, as for fmu-ode-openmodelica: priority 2 objective 2163.53, the "
         "reference 2163.74"
