@@ -116,6 +116,24 @@ KNOWN_FAILURES = {
         )
         for route in ("fmu-ode-openmodelica", "fmu-ode-rumoca", "fmu-dae-openmodelica")
     },
+    ("channel_pulse/src/example.py", "bmo-rumoca-pymoca"): (
+        "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
+    ),
+    ("channel_pulse/src/example.py", "bmo-rumoca-lacemodelica"): (
+        "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica "
+        "has no transpose()"
+    ),
+    ("channel_pulse/src/example.py", "fmu-ode-openmodelica"): (
+        "FMU outputs fail to evaluate at the seed (the FMU driver sets fmu_seed_from_inputs), "
+        "and the initial equations need _INITres outputs that a plain export lacks"
+    ),
+    ("channel_pulse/src/example.py", "fmu-ode-rumoca"): (
+        "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
+    ),
+    ("channel_pulse/src/example.py", "fmu-dae-openmodelica"): (
+        "use_convective_acceleration and use_inertia are fixed at export, so the variants need "
+        "one FMU each (as the FMU driver has); the inertial wave runs hit invalid numbers"
+    ),
     ("goal_programming/src/example.py", "fmu-ode-rumoca"): (
         "another optimum, as for fmu-ode-openmodelica: priority 2 objective 2163.53, the "
         "reference 2163.74"
