@@ -11,11 +11,11 @@ from rtctools.optimization.collocated_integrated_optimization_problem import (
     CollocatedIntegratedOptimizationProblem,
 )
 from rtctools.optimization.csv_mixin import CSVMixin
-from rtctools.optimization.fmu_ode_mixin import FMUOdeMixin
+from rtctools.optimization.fmu_mixin import FMUMixin
 from rtctools.util import run_optimization_problem
 
 
-class ExampleOpt(CSVMixin, FMUOdeMixin, CollocatedIntegratedOptimizationProblem):
+class ExampleOpt(CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
     def __init__(self, **kwargs):
         super().__init__(model_name="Example", **kwargs)
 

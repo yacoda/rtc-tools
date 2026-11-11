@@ -2,7 +2,7 @@
 # Export the example models as plain FMI 3.0 Model Exchange FMUs: no --daeMode, symbolic ODE Jacobian,
 # no tearing. OpenModelica needs the FMU interface of its branch fmu-ode-mode.
 #
-# Wrappers: restate the initial equations as outputs _INITres<i>, which FMUOdeMixin reads, since a
+# Wrappers: restate the initial equations as outputs _INITres<i>, which FMUMixin reads in ODE mode, since a
 # plain FMU does not expose them; literal attributes, as in the FMUs of the DAE route; start values
 # where the FMU cannot evaluate 0. Models that OpenModelica refuses as under-determined get their
 # free variable as an input, and delay() becomes an input for delayed_feedback().

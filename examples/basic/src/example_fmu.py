@@ -11,6 +11,8 @@ class Example(CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
     A basic example for introducing users to RTC-Tools 2
     """
 
+    model_format = "dae"
+
     def objective(self, ensemble_member):
         # Minimize water pumped. The total water pumped is the integral of the
         # water pumped from the starting time until the stopping time. In

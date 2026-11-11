@@ -2,12 +2,14 @@ from rtctools.optimization.collocated_integrated_optimization_problem import (
     CollocatedIntegratedOptimizationProblem,
 )
 from rtctools.optimization.csv_mixin import CSVMixin
-from rtctools.optimization.homotopy_mixin import HomotopyMixin
 from rtctools.optimization.fmu_mixin import FMUMixin
+from rtctools.optimization.homotopy_mixin import HomotopyMixin
 from rtctools.util import run_optimization_problem
 
 
 class Example(HomotopyMixin, CSVMixin, FMUMixin, CollocatedIntegratedOptimizationProblem):
+    model_format = "dae"
+
     def parameters(self, ensemble_member):
         p = super().parameters(ensemble_member)
         times = self.times()
