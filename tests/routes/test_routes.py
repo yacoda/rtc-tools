@@ -241,14 +241,17 @@ def _read_csv(path):
     return columns
 
 
+def _too_few_degrees_of_freedom(log):
+    """How many solves IPOPT could only do through its fallback for a rank-deficient problem"""
+    return log.count("Too few degrees of freedom")
+
+
 def _problems(returncode, log, records):
     """What went wrong in a run, as a list of messages."""
     problems = []
     if returncode != 0:
         tail = "\n".join(log.strip().splitlines()[-15:])
         problems.append(f"exit code {returncode}:\n{tail}")
-    if "Too few degrees of freedom" in log:
-        problems.append("IPOPT: Too few degrees of freedom")
     for i, r in enumerate(records):
         if "error" in r:
             problems.append(f"run {i} ({r['class']}): {r['error']}")
@@ -313,18 +316,26 @@ def _reference(driver, tmp_path_factory):
         work = tmp_path_factory.mktemp("reference")
         returncode, log, records = _run(driver, REFERENCE, work)
         problems = _problems(returncode, log, records)
-        _references[driver] = (problems, records)
+        _references[driver] = (problems, records, _too_few_degrees_of_freedom(log))
     return _references[driver]
 
 
 @pytest.mark.parametrize("driver, route", list(_cases()))
 def test_route(driver, route, tmp_path, tmp_path_factory):
-    problems, reference = _reference(driver, tmp_path_factory)
+    problems, reference, reference_deficient = _reference(driver, tmp_path_factory)
     if problems:
         pytest.fail(f"the reference route fails on {driver}: " + "; ".join(problems))
 
     returncode, log, records = _run(driver, route, tmp_path)
     problems = _problems(returncode, log, records)
+    # Some examples are rank-deficient on the reference too, e.g. the initial-value check of
+    # single_reservoir; a route must not add such solves
+    deficient = _too_few_degrees_of_freedom(log)
+    if deficient > reference_deficient:
+        problems.append(
+            f"IPOPT: Too few degrees of freedom in {deficient} solves, the reference has "
+            f"{reference_deficient}"
+        )
     assert not problems, f"{driver} on {route} (log: {tmp_path / 'log.txt'}):\n" + "\n".join(
         problems
     )
@@ -343,7 +354,7 @@ def test_route(driver, route, tmp_path, tmp_path_factory):
 )
 def test_reference(driver, tmp_path_factory):
     """The reference route itself works, so that a failure of another route is its own."""
-    problems, _ = _reference(driver, tmp_path_factory)
+    problems, _, _ = _reference(driver, tmp_path_factory)
     assert not problems, "; ".join(problems)
 
 
