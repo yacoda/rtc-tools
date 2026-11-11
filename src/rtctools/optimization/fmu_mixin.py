@@ -103,9 +103,13 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
         States whose FMU start value is an initial condition (FMI has no ``fixed`` attribute).
         Default is an empty list.
 
+    :cvar fmu_exact_hessian:
+        Give the solver second derivatives, as finite differences of the FMU's Jacobians. If
+        ``False``, IPOPT uses a limited-memory approximation. Default is ``True``.
+
     The other options belong to one format: ``fmu_free_initial_input_derivatives`` to ``"dae"``,
-    and ``fmu_analytic_derivatives``, ``fmu_analytic_outputs``, ``fmu_exact_hessian`` and
-    ``fmu_seed_from_inputs`` to ``"ode"``.
+    and ``fmu_analytic_derivatives``, ``fmu_analytic_outputs`` and ``fmu_seed_from_inputs`` to
+    ``"ode"``.
 
     Like ``model_name``, the options ``model_format``, ``model_exporter`` and
     ``model_exporter_flags`` can also be given as keyword arguments.

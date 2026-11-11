@@ -36,6 +36,11 @@ _FINITE_DIFFERENCES = {"uses_directional_derivatives": False, "uses_adjoint_deri
 # directions at a time.
 _JACOBIAN_ONLY = {"enable_forward": False, "enable_reverse": False}
 
+# Second derivatives: finite differences of the FMU's Jacobian. A step that stays close, as the
+# model may not be defined far away. A Jacobian that is itself a finite difference needs more.
+_HESSIAN_OF_ANALYTIC = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-6}}
+_HESSIAN_OF_DIFFERENCES = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-4}}
+
 
 def _with_derivative_options(opts):
     der = {k: v for k, v in opts.items() if k not in _JACOBIAN_ONLY and not k.startswith("scheme")}
@@ -129,9 +134,9 @@ class _FMUDaeMixin(OptimizationProblem):
 
     Derivatives: the DAE and initial residuals use the FMU's analytic forward directional
     derivatives (``fmi3GetDirectionalDerivative``); FMU outputs use finite differences (the
-    directional derivatives of OpenModelica's FMUs only cover the residuals). There are no
-    second derivatives, so IPOPT uses ``hessian_approximation=limited-memory`` by default
-    (:py:meth:`solver_options`).
+    directional derivatives of OpenModelica's FMUs only cover the residuals). Second
+    derivatives are finite differences of those Jacobians (:py:attr:`fmu_exact_hessian`); with
+    ``fmu_exact_hessian = False``, IPOPT uses ``hessian_approximation=limited-memory``.
 
     :cvar fmu_model_name:
         Name of the FMU file (without ``.fmu``). Default is the model name.
@@ -162,6 +167,9 @@ class _FMUDaeMixin(OptimizationProblem):
 
     #: FMU inputs der(u) of constant inputs u: free at t0 (as pymoca's initial derivative)
     fmu_free_initial_input_derivatives = True
+
+    #: Second derivatives for the solver, as finite differences of the FMU's Jacobians
+    fmu_exact_hessian = True
 
     # The collocation residual calls the FMU: it is never affine in the sense of is_affine
     check_collocation_linearity = False
@@ -347,11 +355,18 @@ class _FMUDaeMixin(OptimizationProblem):
             dae.set_max(n, np.inf)
         # Directional derivatives through the FmuFunction's Jacobian (see _JACOBIAN_ONLY)
         opts = {"parallelization": "serial", **_JACOBIAN_ONLY}
+
+        def options(base, hessian):
+            result = _with_derivative_options(base)
+            if self.fmu_exact_hessian:
+                result["jacobian_options"] = {**result["jacobian_options"], **hessian}
+            return result
+
         f_alg = dae.create(
             "fmu_dae_residual",
             ["t", "x", "z", "u"],
             ["alg"],
-            _with_derivative_options({**opts, **_NO_ADJOINT}),
+            options({**opts, **_NO_ADJOINT}, _HESSIAN_OF_ANALYTIC),
         )
         residual = [f_alg(*self.__args)]
         if self.__fmu_y:
@@ -362,14 +377,15 @@ class _FMUDaeMixin(OptimizationProblem):
                 "fmu_outputs",
                 ["t", "x", "z", "u"],
                 ["y"],
-                _with_derivative_options(
+                options(
                     {
                         **opts,
                         **_FINITE_DIFFERENCES,
                         "scheme_in": ["t", "x", "z", "u"],
                         "scheme_out": ["y"],
                         "scheme": scheme,
-                    }
+                    },
+                    _HESSIAN_OF_DIFFERENCES,
                 ),
             )
             residual.append(self.__y_syms - f_y(*self.__args))
@@ -380,7 +396,7 @@ class _FMUDaeMixin(OptimizationProblem):
                 "fmu_initial_residual",
                 ["t", "x", "z", "u"],
                 ["ialg"],
-                _with_derivative_options({**opts, **_NO_ADJOINT}),
+                options({**opts, **_NO_ADJOINT}, _HESSIAN_OF_ANALYTIC),
             )
             self.__initial_residual = f_init(*self.__args)
         else:
@@ -555,8 +571,7 @@ class _FMUDaeMixin(OptimizationProblem):
 
     def solver_options(self):
         options = super().solver_options()
-        if options.get("solver") == "ipopt":
-            # The FMU provides no second derivatives
+        if options.get("solver") == "ipopt" and not self.fmu_exact_hessian:
             options["ipopt"].setdefault("hessian_approximation", "limited-memory")
         # Each forward sweep through an FMU call evaluates that call's full Jacobian (see
         # _JACOBIAN_ONLY): many directions per sweep in the DAE functions (max_num_dir)

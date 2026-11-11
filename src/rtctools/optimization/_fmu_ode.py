@@ -12,7 +12,14 @@ from rtctools._internal.caching import cached
 from rtctools._internal.ensemble_bounds_decorator import ensemble_bounds_check
 from rtctools._internal.fmu_description import FMUDescription
 
-from ._fmu_dae import _JACOBIAN_ONLY, _backward_difference, _equal, _with_derivative_options
+from ._fmu_dae import (
+    _HESSIAN_OF_ANALYTIC,
+    _HESSIAN_OF_DIFFERENCES,
+    _JACOBIAN_ONLY,
+    _backward_difference,
+    _equal,
+    _with_derivative_options,
+)
 from .optimization_problem import OptimizationProblem
 from .timeseries import Timeseries
 
@@ -27,10 +34,6 @@ _INITIAL_RESIDUAL = re.compile(r"_INITres\d*\Z")
 
 _ANALYTIC = {"uses_directional_derivatives": True, "uses_adjoint_derivatives": False}
 _FINITE_DIFFERENCES = {"uses_directional_derivatives": False, "uses_adjoint_derivatives": False}
-# Second derivatives: finite differences of the FMU's Jacobian. A step that stays close, as the
-# model may not be defined far away. A Jacobian that is itself a finite difference needs more.
-_HESSIAN_OF_ANALYTIC = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-6}}
-_HESSIAN_OF_DIFFERENCES = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-4}}
 _BONMIN_PATIENT = {
     "expect_infeasible_problem": "no",
     "required_infeasibility_reduction": 0.9,
