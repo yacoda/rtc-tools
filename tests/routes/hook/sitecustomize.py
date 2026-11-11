@@ -5,7 +5,8 @@ RTCTOOLS_ROUTE_RECORD (a folder) in the environment.
 
 Each call of run_optimization_problem or run_simulation_problem is recorded in
 <record>/<index>/: the CSV files of the output folder after the call, with its subfolders, in
-csv/, and status.json with the problem class, the solver status and the objective value.
+csv/, and status.json with the problem class, the solver status, the objective value and,
+for goal programming, the objective after each priority.
 """
 
 import json
@@ -40,12 +41,32 @@ elif _options:
             setattr(_cls, _name, _value)
 
 
+# The objective after each priority of a goal programming problem
+_priority_objectives = []
+
+
+def _record_priorities():
+    from rtctools.optimization.goal_programming_mixin_base import _GoalProgrammingMixinBase
+
+    completed = _GoalProgrammingMixinBase.priority_completed
+
+    def priority_completed(self, priority):
+        _priority_objectives.append(float(self.objective_value))
+        return completed(self, priority)
+
+    _GoalProgrammingMixinBase.priority_completed = priority_completed
+
+
+_record_priorities()
+
+
 def _recorded(run):
     def wrapper(problem_class, *args, **kwargs):
         index = len(list(_record.glob("[0-9]*")))
         folder = _record / f"{index:02d}"
         folder.mkdir(parents=True)
         status = {"class": problem_class.__name__}
+        _priority_objectives.clear()
         try:
             problem = run(problem_class, *args, **kwargs)
         except BaseException as error:
@@ -60,6 +81,7 @@ def _recorded(run):
             status["objective"] = None if objective is None else float(objective)
         except (TypeError, ValueError):
             status["objective"] = None
+        status["priority_objectives"] = list(_priority_objectives)
         output_folder = Path(getattr(problem, "_output_folder", "") or "")
         if output_folder.is_dir():
             # Also in subfolders: ensemble members write to output/<member>/

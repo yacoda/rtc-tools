@@ -100,12 +100,25 @@ KNOWN_FAILURES = {
         "Bonmin: the continuous relaxation is infeasible (violation 71.4); not traced. The ODE "
         "FMU route of the same model solves"
     ),
+    ("goal_programming/src/example.py", "fmu-dae-openmodelica"): (
+        "Bonmin: the continuous relaxation is infeasible, as for mixed_integer (same orifice and "
+        "Boolean structure); not traced"
+    ),
+    ("goal_programming/src/example.py", "fmu-ode-openmodelica"): (
+        "another optimum: priority 2 objective 2163.53, the reference 2163.74; priority 3 "
+        "0.8505 against 0.8495; not traced"
+    ),
+    ("goal_programming/src/example.py", "fmu-ode-rumoca"): (
+        "another optimum, as for fmu-ode-openmodelica: priority 2 objective 2163.53, the "
+        "reference 2163.74"
+    ),
 }
 
 # Drivers whose optimum is not unique: the routes reach the same objective with different
 # trajectories, so their runs are compared on the objective (OBJECTIVE_TOLERANCE, relative).
 OBJECTIVE_ONLY = {
     "mixed_integer/src/example.py": "MILP: same objective on every route (2e-11), Q_pump differs",
+    "goal_programming/src/example.py": "MILPs: same objective per priority, Q_orifice differs",
 }
 OBJECTIVE_TOLERANCE = 1e-6
 
@@ -296,11 +309,15 @@ def _objective_differences(reference, records):
     if len(records) != len(reference):
         messages.append(f"{len(records)} runs, the reference has {len(reference)}")
     for i, (ref, rec) in enumerate(zip(reference, records, strict=False)):
-        a, b = rec.get("objective"), ref.get("objective")
-        if a is None or b is None:
-            messages.append(f"run {i}: no objective")
-        elif abs(a - b) > OBJECTIVE_TOLERANCE * max(abs(b), 1.0):
-            messages.append(f"run {i}: objective {a!r}, the reference has {b!r}")
+        # Goal programming: the objective after each priority, else the final objective
+        ours = rec.get("priority_objectives") or [rec.get("objective")]
+        theirs = ref.get("priority_objectives") or [ref.get("objective")]
+        if len(ours) != len(theirs) or None in ours + theirs:
+            messages.append(f"run {i}: objectives {ours}, the reference has {theirs}")
+            continue
+        for k, (a, b) in enumerate(zip(ours, theirs, strict=True)):
+            if abs(a - b) > OBJECTIVE_TOLERANCE * max(abs(b), 1.0):
+                messages.append(f"run {i} objective {k}: {a!r}, the reference has {b!r}")
     return messages
 
 
