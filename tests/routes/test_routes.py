@@ -188,9 +188,14 @@ def _run(driver, route, work):
     shutil.copytree(
         EXAMPLES / example,
         copy,
-        ignore=shutil.ignore_patterns("*.fmu", "*.bmo", "*.pymoca_cache", "output"),
+        ignore=shutil.ignore_patterns("*.fmu", "*.bmo", "*.pymoca_cache"),
     )
+    # Keep the output folders (ensemble writes into output/<member>/), not old results, which
+    # could pass for the output of a run that failed
     (copy / "output").mkdir(exist_ok=True)
+    for old in (copy / "output").rglob("*"):
+        if old.is_file():
+            old.unlink()
     record = work / "record"
     record.mkdir()
     env = _environment(ROUTES[route])
@@ -213,7 +218,10 @@ def _run(driver, route, work):
     records = []
     for folder in sorted(record.iterdir()):
         status = json.loads((folder / "status.json").read_text())
-        status["csv"] = {p.name: _read_csv(p) for p in sorted(folder.glob("*.csv"))}
+        csv_folder = folder / "csv"
+        status["csv"] = {
+            str(p.relative_to(csv_folder)): _read_csv(p) for p in sorted(csv_folder.rglob("*.csv"))
+        }
         records.append(status)
     return returncode, log, records
 
@@ -248,6 +256,9 @@ def _problems(returncode, log, records):
             problems.append(f"run {i} ({r['class']}): solver failed ({r.get('return_status')})")
     if not records and returncode == 0:
         problems.append("no runs recorded")
+    for i, r in enumerate(records):
+        if "error" not in r and not r["csv"]:
+            problems.append(f"run {i} ({r['class']}): no output timeseries")
     return problems
 
 
