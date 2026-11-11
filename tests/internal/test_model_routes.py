@@ -147,6 +147,27 @@ class ExportTest(unittest.TestCase):
                     "openmodelica", "basemodelica", self.models, "Model", [], self.models
                 )
 
+    def test_rumoca(self):
+        # Stands in for rumoca: writes into the --output folder, as Rumoca does
+        rumoca = self.folder / "rumoca.py"
+        rumoca.write_text(
+            "import sys, pathlib\n"
+            "a = sys.argv\n"
+            "out = pathlib.Path(a[a.index('--output') + 1])\n"
+            "out.mkdir()\n"
+            "model = a[a.index('--model') + 1]\n"
+            "target = a[a.index('--target') + 1]\n"
+            "name = model + ('_base.mo' if target == 'base-modelica' else '.fmu')\n"
+            "(out / name).write_text(target)\n"
+        )
+        with mock.patch.dict(os.environ, {"RTCTOOLS_RUMOCA": f"{sys.executable} {rumoca}"}):
+            bmo = model_routes.export_model(
+                "rumoca", "basemodelica", self.models, "Model", [], self.models
+            )
+            fmu = model_routes.export_model("rumoca", "ode", self.models, "Model", [], self.models)
+        self.assertEqual((bmo.name, bmo.read_text()), ("Model.bmo", "base-modelica"))
+        self.assertEqual((fmu.name, fmu.read_text()), ("Model.fmu", "fmi3"))
+
     def test_main_file(self):
         self.assertEqual(
             model_routes._main_file(self.models, "Model"), str(self.models / "Model.mo")

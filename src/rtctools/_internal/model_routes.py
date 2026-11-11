@@ -237,14 +237,17 @@ def _main_file(model_folder, model_name):
 def _export_rumoca(output, model_folder, model_name, library_dirs, work, flags):
     if output not in RUMOCA_TARGETS:
         raise ValueError(f"Rumoca has no export to {output!r}")
-    out = Path(work) / (f"{model_name}.bmo" if output == "basemodelica" else f"{model_name}.fmu")
+    # Rumoca writes into an output folder: <Model>_base.mo for Base Modelica, <Model>.fmu for FMI
+    folder = Path(work) / "rumoca-output"
+    produced = f"{model_name}_base.mo" if output == "basemodelica" else f"{model_name}.fmu"
+    out = folder / produced
     main = _main_file(model_folder, model_name)
     roots = [f for f in _modelica_files(model_folder) if f != main] + list(library_dirs)
     command = _command("RTCTOOLS_RUMOCA", "rumoca") + ["compile", main, "--model", model_name]
     command += [arg for root in roots for arg in ("--source-root", root)]
-    command += ["--target", RUMOCA_TARGETS[output], "--output", str(out)] + list(flags or [])
+    command += ["--target", RUMOCA_TARGETS[output], "--output", str(folder)] + list(flags or [])
     result = _run(command, work, "Rumoca (RTCTOOLS_RUMOCA, default rumoca)")
-    if result.returncode != 0 or not out.exists():
+    if result.returncode != 0 or not out.is_file():
         raise RuntimeError(
             f"Rumoca did not export {model_name}:\n{result.stdout[-3000:]}{result.stderr[-2000:]}"
         )
