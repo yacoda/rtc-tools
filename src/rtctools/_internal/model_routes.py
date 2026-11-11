@@ -243,12 +243,24 @@ def _export_rumoca(output, model_folder, model_name, library_dirs, work, flags):
     folder = Path(work) / "rumoca-output"
     produced = f"{model_name}_base.mo" if output == "basemodelica" else f"{model_name}.fmu"
     out = folder / produced
+
+    def compile(main):
+        roots = [f for f in _modelica_files(Path(main).parent) if f != main] + list(library_dirs)
+        command = _command("RTCTOOLS_RUMOCA", "rumoca") + ["compile", main, "--model", model_name]
+        command += [arg for root in roots for arg in ("--source-root", root)]
+        command += ["--target", RUMOCA_TARGETS[output], "--output", str(folder)]
+        return _run(command + list(flags or []), work, "Rumoca (RTCTOOLS_RUMOCA, default rumoca)")
+
     main = _main_file(model_folder, model_name)
-    roots = [f for f in _modelica_files(model_folder) if f != main] + list(library_dirs)
-    command = _command("RTCTOOLS_RUMOCA", "rumoca") + ["compile", main, "--model", model_name]
-    command += [arg for root in roots for arg in ("--source-root", root)]
-    command += ["--target", RUMOCA_TARGETS[output], "--output", str(folder)] + list(flags or [])
-    result = _run(command, work, "Rumoca (RTCTOOLS_RUMOCA, default rumoca)")
+    result = compile(main)
+    if result.returncode != 0 and "ED001" in result.stdout + result.stderr:
+        # Under-determined by design (the rest comes from Python or the optimizer): Rumoca only
+        # accepts that for a partial model, as for the Rumoca loader
+        from rtctools._internal.rumoca_loader import _as_partial
+
+        logger.info(f"{model_name} is under-determined: exporting it as a partial model.")
+        shutil.rmtree(folder, ignore_errors=True)
+        result = compile(str(_as_partial(Path(main), model_name, Path(work) / "partial-model")))
     if result.returncode != 0 or not out.is_file():
         raise RuntimeError(
             f"Rumoca did not export {model_name}:\n{result.stdout[-3000:]}{result.stderr[-2000:]}"
