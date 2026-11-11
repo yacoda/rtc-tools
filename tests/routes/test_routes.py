@@ -104,12 +104,18 @@ _NO_FUNCTIONS_LACE = (
 )
 _SINGULAR = "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
 _UNDERDETERMINED_FMU = (
-    "OpenModelica refuses the FMU export: under-determined by design (104 equations, 105 "
-    "variables), and an FMU must be balanced; the ODE experiment edited the model"
+    "OpenModelica refuses the FMU export: the model is under-determined by design (one variable "
+    "left to rtc-tools), and an FMU must be balanced; the ODE experiment edited the model"
 )
 
 # (driver, route): cause. Strict xfails.
 KNOWN_FAILURES = {
+    ("pumped_hydropower_system/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
+    ("pumped_hydropower_system/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
+    ("pumped_hydropower_system/src/example.py", "fmu-ode-rumoca"): (
+        "Rumoca's FMI C profile cannot execute the discrete Boolean Turbine_is_on (\"executes "
+        'only discrete rows whose pre follows the current pass")'
+    ),
     ("cascading_channels/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
     ("cascading_channels/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
     ("cascading_channels/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
