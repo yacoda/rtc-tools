@@ -83,7 +83,14 @@ def _build(output: Path):
     delays = {f"__delay_{i}": f"_pymoca_delay_{i}" for i in range(delay_count)}
 
     symbols = {}
+    # An array without elements, such as x[0], has nothing to solve for: the graph gets an empty
+    # matrix and the model no variable (OpenModelica's export leaves such arrays out)
+    empty = set()
     for i, name in enumerate(inputs):
+        if oracle.numel_in(i) == 0:
+            symbols[name] = ca.MX(*oracle.size_in(i))
+            empty.add(name)
+            continue
         symbol = ca.MX.sym(delays.get(name, name), *oracle.size_in(i))
         symbol._modelica_shape = symbol.shape if name in delays else _modelica_shape(name)
         symbols[name] = symbol
@@ -116,7 +123,7 @@ def _build(output: Path):
 
     for element in variables:
         name = element.get("name")
-        if name == "time" or name in is_derivative:
+        if name == "time" or name in is_derivative or name in empty:
             continue
         python_type = _TYPES[element.tag]
         variable = Variable(symbols[name], python_type)
