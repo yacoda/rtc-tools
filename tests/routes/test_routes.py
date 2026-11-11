@@ -108,6 +108,14 @@ KNOWN_FAILURES = {
         "another optimum: priority 2 objective 2163.53, the reference 2163.74; priority 3 "
         "0.8505 against 0.8495; not traced"
     ),
+    **{
+        ("integrator_delay/src/example.py", route): (
+            "FMU routes have no delay(): OpenModelica's FMU gets event indicators, which FMUMixin "
+            "refuses, and Rumoca's fmi3 target refuses delays. The ODE experiment used a variant "
+            "model with the delay as an input (example_ode.py)"
+        )
+        for route in ("fmu-ode-openmodelica", "fmu-ode-rumoca", "fmu-dae-openmodelica")
+    },
     ("goal_programming/src/example.py", "fmu-ode-rumoca"): (
         "another optimum, as for fmu-ode-openmodelica: priority 2 objective 2163.53, the "
         "reference 2163.74"
