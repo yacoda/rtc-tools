@@ -95,7 +95,19 @@ SIMULATION_DRIVERS = [
 ]
 
 # (driver, route): cause. Strict xfails.
-KNOWN_FAILURES = {}
+KNOWN_FAILURES = {
+    ("mixed_integer/src/example.py", "fmu-dae-openmodelica"): (
+        "Bonmin: the continuous relaxation is infeasible (violation 71.4); not traced. The ODE "
+        "FMU route of the same model solves"
+    ),
+}
+
+# Drivers whose optimum is not unique: the routes reach the same objective with different
+# trajectories, so their runs are compared on the objective (OBJECTIVE_TOLERANCE, relative).
+OBJECTIVE_ONLY = {
+    "mixed_integer/src/example.py": "MILP: same objective on every route (2e-11), Q_pump differs",
+}
+OBJECTIVE_TOLERANCE = 1e-6
 
 
 def _cases():
@@ -278,6 +290,20 @@ def _relative_error(values, reference):
     return error / scale
 
 
+def _objective_differences(reference, records):
+    """How the objectives differ from the reference objectives, as a list of messages."""
+    messages = []
+    if len(records) != len(reference):
+        messages.append(f"{len(records)} runs, the reference has {len(reference)}")
+    for i, (ref, rec) in enumerate(zip(reference, records, strict=False)):
+        a, b = rec.get("objective"), ref.get("objective")
+        if a is None or b is None:
+            messages.append(f"run {i}: no objective")
+        elif abs(a - b) > OBJECTIVE_TOLERANCE * max(abs(b), 1.0):
+            messages.append(f"run {i}: objective {a!r}, the reference has {b!r}")
+    return messages
+
+
 def _differences(reference, records):
     """How the records differ from the reference records, as a list of messages."""
     messages = []
@@ -339,7 +365,10 @@ def test_route(driver, route, tmp_path, tmp_path_factory):
     assert not problems, f"{driver} on {route} (log: {tmp_path / 'log.txt'}):\n" + "\n".join(
         problems
     )
-    differences = _differences(reference, records)
+    if driver in OBJECTIVE_ONLY:
+        differences = _objective_differences(reference, records)
+    else:
+        differences = _differences(reference, records)
     assert not differences, f"{driver} on {route} differs from {REFERENCE}:\n" + "\n".join(
         differences[:20]
     )
@@ -361,4 +390,7 @@ def test_reference(driver, tmp_path_factory):
 def test_known_failures_exist():
     cases = {(p.values[0], p.values[1]) for p in _cases()}
     assert not set(KNOWN_FAILURES) - cases, "known failures that are not test cases"
+    assert set(OBJECTIVE_ONLY) <= set(OPTIMIZATION_DRIVERS), (
+        "objective-only drivers that are not drivers"
+    )
     assert all(re.match(r"\S", reason) for reason in KNOWN_FAILURES.values())
