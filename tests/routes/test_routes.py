@@ -42,13 +42,7 @@ HOOK = Path(__file__).resolve().parent / "hook"
 TOLERANCE = 1e-4
 TIMEOUT = 3600
 # Known time-outs get a shorter limit, so that a run of the matrix does not wait for them
-SHORT_TIMEOUT = {
-    (d, "fmu-dae-openmodelica"): 600
-    for d in (
-        "channel_wave_damping/src/example_local_control.py",
-        "channel_wave_damping/src/example_optimization.py",
-    )
-}
+SHORT_TIMEOUT = {}
 
 REFERENCE = "pymoca"
 
@@ -131,13 +125,6 @@ KNOWN_FAILURES = {
     **{(d, "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE for d in _WAVE_DAMPING},
     **{(d, "fmu-ode-rumoca"): _SINGULAR for d in _WAVE_DAMPING},
     **{(d, "fmu-ode-openmodelica"): _FMI3_ARRAYS for d in _WAVE_DAMPING},
-    **{
-        (d, "fmu-dae-openmodelica"): (
-            "times out in IPOPT, also without the finite-difference Hessian; FMUs of the "
-            "earlier OpenModelica and CasADi builds solved it (local control: 1.6e-11); not traced"
-        )
-        for d in _WAVE_DAMPING
-    },
     ("pumped_hydropower_system/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
     ("pumped_hydropower_system/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
     ("pumped_hydropower_system/src/example.py", "fmu-ode-rumoca"): (
