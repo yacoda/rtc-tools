@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1.6
+#
+# The rtc-integration chain in one image: OpenModelica (omc), Rumoca and CasADi of their
+# rtc-integration branches, built from source on Ubuntu 24.04.
+#
+# The branches are local, so the sources come from exports of the pinned commits (pins), made by
+# prepare_context.py into context/. Each tool is built in its own stage, in one RUN that unpacks
+# the sources, builds, installs to /opt/<tool> and deletes sources, build tree and download caches
+# again: a stage keeps its installation only, and the final stage copies just /opt/<tool>.
+#
+# usage:
+#   python3 prepare_context.py
+#   docker build --pull -t rtc-integration -f Dockerfile .
+#   docker builder prune -f     # the build cache keeps the stages' layers
+
+ARG UBUNTU=ubuntu:24.04
+ARG JOBS=8
+
+# ---------------------------------------------------------------------------- base
+FROM ${UBUNTU} AS base
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------- build tools
+# The compiler subset of the openmodelica 1.27.2 Build-Depends for noble (no Qt or GUI), and a
+# rustup toolchain: OpenModelica's Rust runtime needs cargo >= 1.85, noble has 1.75.
+FROM base AS build-tools
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential gfortran clang cmake pkg-config autoconf automake libtool flex bison \
+      default-jre-headless uuid-dev libhdf5-dev liblapack-dev libblas-dev libcurl4-gnutls-dev \
+      libexpat1-dev libomp-dev libboost-dev libminizip-dev zlib1g-dev libreadline-dev \
+      libncurses-dev libsqlite3-dev libffi-dev zip unzip git python3 \
+ && rm -rf /var/lib/apt/lists/*
+ENV RUSTUP_HOME=/opt/rustup PATH=/opt/cargo/bin:${PATH}
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | CARGO_HOME=/opt/cargo sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
+ && rm -rf /opt/cargo/registry /opt/cargo/git \
+ && cargo --version
+
+# ---------------------------------------------------------------------------- OpenModelica
+# Compiler and runtimes only, as .rtc-integration/build.sh of the OpenModelica branch. The
+# crates go to a CARGO_HOME inside the build tree, so that they leave with it.
+FROM build-tools AS omc
+ARG JOBS
+RUN --mount=type=bind,source=context/openmodelica.tar,target=/ctx/openmodelica.tar \
+    set -eux; \
+    mkdir -p /tmp/om; tar -xf /ctx/openmodelica.tar -C /tmp/om; cd /tmp/om; \
+    export CARGO_HOME=/tmp/om/cargo-home CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=300; \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/openmodelica \
+      -DOM_ENABLE_GUI_CLIENTS=OFF -DOM_ENABLE_OMSIMULATOR=OFF -DOM_ENABLE_TESTSUITE=OFF \
+      -DOM_QT_MAJOR_VERSION=5 -DOM_USE_CCACHE=OFF; \
+    cmake --build build --parallel "${JOBS}" --target install; \
+    cd /; rm -rf /tmp/om; \
+    /opt/openmodelica/bin/omc --version
+
+# ---------------------------------------------------------------------------- runtime
+# omc writes C code and compiles it for every FMU it exports: the image keeps a C toolchain and
+# cmake, and the run-time libraries omc links.
+FROM base AS runtime
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential gfortran cmake liblapack3 libblas3 libgomp1 libomp5 libcurl3t64-gnutls \
+      libexpat1 libuuid1 libhdf5-103-1t64 libminizip1t64 zlib1g libreadline8t64 libsqlite3-0 \
+      libffi8 libstdc++6 unzip \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=omc /opt/openmodelica /opt/openmodelica
+ENV PATH=/opt/openmodelica/bin:${PATH}
+
+# Smoke test: Base Modelica and FMUs in ODE and DAE mode (fmi-ls-dae) of a small model
+RUN set -eux; mkdir /tmp/smoke; cd /tmp/smoke; \
+    printf 'model M\n  parameter Real k = 2;\n  Real x(start = 1, fixed = true);\n  Real y;\nequation\n  der(x) = -k * x;\n  y = x^2;\nend M;\n' > M.mo; \
+    printf 'loadFile("M.mo"); getErrorString();\nwriteFile("M.bmo", instantiateModel(M)); getErrorString();\n' > bmo.mos; \
+    omc --BaseModelica --baseModelicaFormat=scalarized bmo.mos; grep -q "base 0.1.0" M.bmo; \
+    printf 'loadFile("M.mo"); getErrorString();\nbuildModelFMU(M, version="3.0", fmuType="me", fileNamePrefix="M"); getErrorString();\n' > fmu.mos; \
+    omc --fmiInputDerivatives fmu.mos; unzip -l M.fmu | grep -q "binaries/x86_64-linux/M.so"; \
+    mv M.fmu M_ode.fmu; \
+    omc --daeMode --simCodeTarget=C+Rust --fmiInputDerivatives fmu.mos; \
+    unzip -l M.fmu | grep -q "binaries/x86_64-linux/M.so"; unzip -l M.fmu | grep -q fmi-ls-dae; \
+    cd /; rm -rf /tmp/smoke
