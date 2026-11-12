@@ -5,4 +5,4 @@ casadi       /home/yacoda/shell/integration/casadi                decda6b6472e26
 swig         /home/yacoda/programs/swig                            65c2ff7fa7cf4a7895b2e9946b572b0ba1958ba0
 pymoca       /home/yacoda/shell/integration/pymoca                2e86d06e4b3f8ea743076ee847dea34f1440043b
 channel-flow /home/yacoda/shell/integration/rtc-tools-channel-flow 23325959899ba209c07a95318256bb2f41528e11
-rtc-tools    /home/yacoda/shell/integration/rtc-tools             b84e6a5fdded53bf03b2b21688a5b51165e6abd9
+rtc-tools    /home/yacoda/shell/integration/rtc-tools             c550534ef5d4f4774eafd81028cedf9745c6e39d
