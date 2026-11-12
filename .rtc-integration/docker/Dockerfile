@@ -156,3 +156,58 @@ print('lacemodelica plugin:', g.name_in(), g.name_out())"; \
 dae = ca.DaeBuilder('M', '/tmp/smoke/M_dae'); \
 print('fmi-ls-dae import:', dae.x(), dae.z())"; \
     cd /; rm -rf /tmp/smoke
+
+# ---------------------------------------------------------------------------- rtc-tools
+# The Python side: a venv on the system Python 3.12 with pymoca, rtc-tools-channel-flow and
+# rtc-tools of their rtc-integration branches (no wheels of casadi or pymoca: CasADi comes from
+# /opt/casadi through a .pth file), the Modelica Standard Library 4.0.0 for omc's exports, and
+# the route tests as the default command.
+FROM runtime AS rtc-integration
+ARG MSL_VERSION=4.0.0
+ARG MSL_SHA256=c5ebed218f20320b95aa5086c1c7de6a28bd1614e7bc14dc084523b5fa6a713c
+RUN set -eux; \
+    curl -sSL -o /tmp/msl.tgz \
+      "https://github.com/modelica/ModelicaStandardLibrary/archive/refs/tags/v${MSL_VERSION}.tar.gz"; \
+    echo "${MSL_SHA256}  /tmp/msl.tgz" | sha256sum -c; \
+    tar -xzf /tmp/msl.tgz -C /tmp; mkdir -p /opt/modelica/libraries; \
+    mv "/tmp/ModelicaStandardLibrary-${MSL_VERSION}/Modelica" "/opt/modelica/libraries/Modelica ${MSL_VERSION}"; \
+    mv "/tmp/ModelicaStandardLibrary-${MSL_VERSION}/ModelicaServices" \
+       "/opt/modelica/libraries/ModelicaServices ${MSL_VERSION}"; \
+    mv "/tmp/ModelicaStandardLibrary-${MSL_VERSION}/Complex.mo" /opt/modelica/libraries/; \
+    rm -rf /tmp/msl.tgz "/tmp/ModelicaStandardLibrary-${MSL_VERSION}"
+ENV OPENMODELICALIBRARY=/opt/modelica/libraries
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-venv \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir "numpy>=1.23.2" "scipy>=1.9.2" "defusedxml>=0.7.0" \
+      "antlr4-python3-runtime==4.13.*" "netCDF4>=1.6.1" "rtc-tools-standard-library>=0.1.2" \
+      "highspy>=1.13.1,<1.15" "pytest>=8.2.0" pytest-xdist \
+ && echo /opt/casadi > "$(/opt/venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/rtc-integration.pth"
+ENV PATH=/opt/venv/bin:${PATH}
+
+# pymoca and rtc-tools-channel-flow are installed and their sources removed; rtc-tools stays in
+# /opt/rtc-tools (editable), as its tests and examples are what the image runs. The exports have
+# no git history, so the hatch-vcs versions are given.
+RUN --mount=type=bind,source=context/pymoca.tar,target=/ctx/pymoca.tar \
+    --mount=type=bind,source=context/channel-flow.tar,target=/ctx/channel-flow.tar \
+    --mount=type=bind,source=context/rtc-tools.tar,target=/ctx/rtc-tools.tar \
+    set -eux; \
+    mkdir -p /tmp/src/pymoca /tmp/src/channel-flow /opt/rtc-tools; \
+    tar -xf /ctx/pymoca.tar -C /tmp/src/pymoca; \
+    tar -xf /ctx/channel-flow.tar -C /tmp/src/channel-flow; \
+    tar -xf /ctx/rtc-tools.tar -C /opt/rtc-tools; \
+    pip install --no-cache-dir --no-deps /tmp/src/pymoca; \
+    SETUPTOOLS_SCM_PRETEND_VERSION=1.5.0+rtc.integration \
+      pip install --no-cache-dir --no-deps /tmp/src/channel-flow; \
+    SETUPTOOLS_SCM_PRETEND_VERSION=2.9.0+rtc.integration \
+      pip install --no-cache-dir --no-deps -e /opt/rtc-tools; \
+    rm -rf /tmp/src; \
+    python -c "import casadi, pymoca, rtctools, rtctools_channel_flow; print(casadi.__file__, pymoca.__version__, rtctools.__version__)"
+
+WORKDIR /opt/rtc-tools
+# Every tool the routes need is there (omc, rumoca, the FMI 3 headers, CasADi with ONNX import,
+# fmi-ls-dae and the lacemodelica plugin, pymoca with Base Modelica)
+RUN pytest -q tests/routes/test_routes.py::test_environment tests/internal/test_model_routes.py
+CMD ["pytest", "-n", "3", "--dist", "loadgroup", "tests/routes"]
