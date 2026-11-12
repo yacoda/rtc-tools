@@ -17,7 +17,7 @@ from pathlib import Path
 logger = logging.getLogger("rtctools")
 
 MODELICA_FORMATS = ("modelica", "basemodelica")
-MODELICA_COMPILERS = ("pymoca", "rumoca", "lacemodelica")
+MODELICA_IMPORTERS = ("pymoca", "rumoca", "lacemodelica")
 FMU_FORMATS = ("ode", "dae")
 EXPORTERS = (None, "openmodelica", "rumoca")
 
@@ -56,21 +56,21 @@ def _check_choice(name, value, choices):
         raise ValueError(f"{name}={value!r} is not one of {', '.join(map(repr, choices))}")
 
 
-def check_modelica_route(model_format, model_compiler, model_exporter):
+def check_modelica_route(model_format, model_importer, model_exporter):
     """Raise a ValueError for an unknown or unsupported combination of ModelicaMixin options."""
     _check_choice("model_format", model_format, MODELICA_FORMATS)
-    _check_choice("model_compiler", model_compiler, MODELICA_COMPILERS)
+    _check_choice("model_importer", model_importer, MODELICA_IMPORTERS)
     _check_choice("model_exporter", model_exporter, EXPORTERS)
     if model_exporter is not None and model_format != "basemodelica":
         raise ValueError(
             f"model_exporter={model_exporter!r} writes Base Modelica, "
             "which needs model_format='basemodelica'"
         )
-    if model_compiler == "lacemodelica" and model_format != "basemodelica":
-        raise ValueError("model_compiler='lacemodelica' needs model_format='basemodelica'")
-    if model_compiler == "rumoca" and model_format != "modelica":
+    if model_importer == "lacemodelica" and model_format != "basemodelica":
+        raise ValueError("model_importer='lacemodelica' needs model_format='basemodelica'")
+    if model_importer == "rumoca" and model_format != "modelica":
         raise ValueError(
-            "model_compiler='rumoca' compiles Modelica sources (model_format='modelica')"
+            "model_importer='rumoca' imports Modelica sources (model_format='modelica')"
         )
 
 
@@ -91,16 +91,16 @@ def library_folders(extra=()):
     return folders
 
 
-def model_loader(model_compiler, model_format):
-    """The transfer_model(model_folder, model_name, compiler_options) of a model compiler.
+def model_loader(model_importer, model_format):
+    """The transfer_model(model_folder, model_name, compiler_options) of a model importer.
 
     lacemodelica and Rumoca are imported only when chosen.
     """
-    if model_compiler == "lacemodelica":
+    if model_importer == "lacemodelica":
         from rtctools._internal.lacemodelica_loader import transfer_model
 
         return transfer_model
-    if model_compiler == "rumoca":
+    if model_importer == "rumoca":
         from rtctools._internal.rumoca_loader import transfer_model
 
         return transfer_model

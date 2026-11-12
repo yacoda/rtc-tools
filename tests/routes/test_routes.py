@@ -2,7 +2,7 @@
 Every example driver on every model route, compared with the reference route: pymoca on the
 Modelica files.
 
-A route is a choice of the options of ModelicaMixin (model_format, model_compiler,
+A route is a choice of the options of ModelicaMixin (model_format, model_importer,
 model_exporter), or FMUMixin in place of ModelicaMixin (model_format, model_exporter). Each
 driver runs in a copy of its example folder, with the route set by tests/routes/hook. Each of its
 runs (calls of run_optimization_problem or run_simulation_problem) must succeed and give the same
@@ -50,7 +50,7 @@ MODELICA = {"mixin": "modelica"}
 FMU = {"mixin": "fmu"}
 ROUTES = {
     "pymoca": {**MODELICA},
-    "rumoca": {**MODELICA, "model_compiler": "rumoca"},
+    "rumoca": {**MODELICA, "model_importer": "rumoca"},
     "bmo-openmodelica-pymoca": {
         **MODELICA,
         "model_format": "basemodelica",
@@ -61,13 +61,13 @@ ROUTES = {
         **MODELICA,
         "model_format": "basemodelica",
         "model_exporter": "openmodelica",
-        "model_compiler": "lacemodelica",
+        "model_importer": "lacemodelica",
     },
     "bmo-rumoca-lacemodelica": {
         **MODELICA,
         "model_format": "basemodelica",
         "model_exporter": "rumoca",
-        "model_compiler": "lacemodelica",
+        "model_importer": "lacemodelica",
     },
     "fmu-ode-openmodelica": {**FMU, "model_format": "ode", "model_exporter": "openmodelica"},
     "fmu-ode-rumoca": {**FMU, "model_format": "ode", "model_exporter": "rumoca"},

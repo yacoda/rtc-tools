@@ -241,12 +241,12 @@ Functional Mock-up Unit (FMU): compiled code that RTC-Tools calls as a black box
 ModelicaMixin
 '''''''''''''
 
-Three attributes choose what is read and what compiles it:
+Three attributes choose what is read and what imports it:
 
 * ``model_format``: ``"modelica"`` (default) reads the Modelica sources (``*.mo``);
   ``"basemodelica"`` reads ``Example.bmo``, the model flattened to Base Modelica, the
   simplified form of Modelica that tools exchange.
-* ``model_compiler``: ``"pymoca"`` (default), ``"rumoca"`` (Modelica sources only) or
+* ``model_importer``: ``"pymoca"`` (default), ``"rumoca"`` (Modelica sources only) or
   ``"lacemodelica"`` (Base Modelica only).
 * ``model_exporter``: with ``model_format = "basemodelica"``, what writes ``Example.bmo`` from
   the Modelica sources at the start of every run: ``"openmodelica"`` (``omc``) or
@@ -264,7 +264,7 @@ this example becomes:
         ...
 
 The attributes can also be given to ``run_optimization_problem()``, for instance
-``run_optimization_problem(Example, model_compiler="rumoca")``, to try a route without
+``run_optimization_problem(Example, model_importer="rumoca")``, to try a route without
 editing the class.
 
 All these routes end in the same kind of model, so they solve the same optimization problem

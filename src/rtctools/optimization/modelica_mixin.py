@@ -37,9 +37,9 @@ class ModelicaMixin(OptimizationProblem):
         What is read from the model folder: ``"modelica"`` (default), the Modelica sources
         (``*.mo``), or ``"basemodelica"``, the flattened model in Base Modelica
         (``<model_name>.bmo``).
-    :cvar model_compiler:
-        What compiles the model to CasADi: ``"pymoca"`` (default), ``"rumoca"`` (Modelica sources
-        only) or ``"lacemodelica"`` (Base Modelica only).
+    :cvar model_importer:
+        What imports the model into CasADi: ``"pymoca"`` (default), ``"rumoca"`` (Modelica
+        sources only) or ``"lacemodelica"`` (Base Modelica only).
     :cvar model_exporter:
         With ``model_format="basemodelica"``, what writes ``<model_name>.bmo`` from the Modelica
         sources, on every run: ``None`` (default) reads the existing file, ``"openmodelica"``
@@ -57,7 +57,7 @@ class ModelicaMixin(OptimizationProblem):
 
     # The route from the model to CasADi
     model_format = "modelica"
-    model_compiler = "pymoca"
+    model_importer = "pymoca"
     model_exporter = None
     model_exporter_flags = None
 
@@ -77,9 +77,9 @@ class ModelicaMixin(OptimizationProblem):
             else:
                 model_name = self.__class__.__name__
 
-        for name in ("model_format", "model_compiler", "model_exporter", "model_exporter_flags"):
+        for name in ("model_format", "model_importer", "model_exporter", "model_exporter_flags"):
             setattr(self, name, route_option(self, kwargs, name, getattr(ModelicaMixin, name)))
-        check_modelica_route(self.model_format, self.model_compiler, self.model_exporter)
+        check_modelica_route(self.model_format, self.model_importer, self.model_exporter)
         if self.model_exporter is not None:
             export_model(
                 self.model_exporter,
@@ -191,7 +191,7 @@ class ModelicaMixin(OptimizationProblem):
     ) -> pymoca.backends.casadi.model.Model:
         """
         Load or compile the model named ``model_name`` from the Modelica files in
-        ``model_folder``, with the compiler and format chosen by :py:attr:`model_compiler` and
+        ``model_folder``, with the importer and format chosen by :py:attr:`model_importer` and
         :py:attr:`model_format`.
 
         Override this method to supply a model from elsewhere, e.g. one composed in memory.
@@ -204,7 +204,7 @@ class ModelicaMixin(OptimizationProblem):
         :returns: A pymoca CasADi model.
         """
         logger.info(f"Loading/compiling model {model_name}.")
-        transfer_model = model_loader(self.model_compiler, self.model_format)
+        transfer_model = model_loader(self.model_importer, self.model_format)
         try:
             return transfer_model(model_folder, model_name, compiler_options)
         except (RuntimeError, ModuleNotFoundError) as error:

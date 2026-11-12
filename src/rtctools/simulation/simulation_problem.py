@@ -59,7 +59,7 @@ class SimulationProblem(DataStoreAccessor):
         is an empty list.
 
         :cvar model_format: As for :py:class:`ModelicaMixin`.
-    :cvar model_compiler: As for :py:class:`ModelicaMixin`.
+    :cvar model_importer: As for :py:class:`ModelicaMixin`.
     :cvar model_exporter: As for :py:class:`ModelicaMixin`.
     :cvar model_exporter_flags: As for :py:class:`ModelicaMixin`.
     """
@@ -72,7 +72,7 @@ class SimulationProblem(DataStoreAccessor):
 
     # The route from the model to CasADi, as for ModelicaMixin
     model_format = "modelica"
-    model_compiler = "pymoca"
+    model_importer = "pymoca"
     model_exporter = None
     model_exporter_flags = None
 
@@ -98,9 +98,9 @@ class SimulationProblem(DataStoreAccessor):
 
         # Load model from pymoca backend
         compiler_options = self.compiler_options()
-        for name in ("model_format", "model_compiler", "model_exporter", "model_exporter_flags"):
+        for name in ("model_format", "model_importer", "model_exporter", "model_exporter_flags"):
             setattr(self, name, route_option(self, kwargs, name, getattr(SimulationProblem, name)))
-        check_modelica_route(self.model_format, self.model_compiler, self.model_exporter)
+        check_modelica_route(self.model_format, self.model_importer, self.model_exporter)
         if self.model_exporter is not None:
             export_model(
                 self.model_exporter,
@@ -111,7 +111,7 @@ class SimulationProblem(DataStoreAccessor):
                 kwargs["model_folder"],
                 self.model_exporter_flags,
             )
-        transfer_model = model_loader(self.model_compiler, self.model_format)
+        transfer_model = model_loader(self.model_importer, self.model_format)
         logger.info(f"Loading/compiling model {model_name}.")
         try:
             self.__pymoca_model = transfer_model(

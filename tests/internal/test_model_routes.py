@@ -315,7 +315,7 @@ class ModelicaMixinRouteTest(unittest.TestCase):
 
     def test_invalid_route(self):
         with self.assertRaises(ValueError):
-            self.problem(model_compiler="lacemodelica")
+            self.problem(model_importer="lacemodelica")
 
     def test_pymoca_without_basemodelica(self):
         from pymoca.backends.casadi._options import _get_default_options
