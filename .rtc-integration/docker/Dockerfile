@@ -93,7 +93,8 @@ RUN --mount=type=bind,source=context/swig.tar,target=/ctx/swig.tar \
 
 # ---------------------------------------------------------------------------- CasADi
 # .rtc-integration/build.sh of the CasADi branch, for the system Python 3.12: FMI 3 import
-# (fmi-ls-dae), the ONNX translator and the solvers of the rtc-tools examples. The external
+# (fmi-ls-dae), the ONNX translator, the lacemodelica ModelicaParser plugin (lacemodelica is
+# fetched from GitHub at the commit the build script pins) and the solvers of the rtc-tools examples. The external
 # projects it downloads and builds (IPOPT, MUMPS, HiGHS, Bonmin, protobuf, ONNX, ...) leave with
 # the build tree; the installation is the Python package casadi and its libraries.
 FROM build-tools AS casadi
@@ -146,6 +147,10 @@ RUN set -eux; mkdir /tmp/smoke; cd /tmp/smoke; \
 assert hasattr(ca, 'GraphBuilder'), 'no GraphBuilder'; \
 assert glob.glob(os.path.dirname(ca.__file__) + '/libcasadi_graphmodel_onnx*'), 'no ONNX import'; \
 print('casadi', ca.__version__)"; \
+    PYTHONPATH=/opt/casadi python3 -c "import casadi as ca; \
+ca.ModelicaParser('lacemodelica').parse('/tmp/smoke/M.bmo', '/tmp/smoke/M_lace'); \
+g = ca.GraphBuilder('/tmp/smoke/M_lace/extra/org.lacemodelica.ls-onnx-serialization/model.onnx').create('f', {'symbolic': True}); \
+print('lacemodelica plugin:', g.name_in(), g.name_out())"; \
     mkdir M_dae; cd M_dae; unzip -q ../M.fmu; cd ..; \
     PYTHONPATH=/opt/casadi python3 -c "import casadi as ca; \
 dae = ca.DaeBuilder('M', '/tmp/smoke/M_dae'); \
