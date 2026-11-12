@@ -10,6 +10,7 @@ The Base Modelica files in ``data/base_modelica`` are OpenModelica's exports of 
 import importlib.metadata
 import importlib.resources
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -139,6 +140,14 @@ def assert_same_model(reference, model):
 # Without the tools
 
 
+def _media_are_records():
+    """Whether the installed rtc-tools-channel-flow declares its media as records"""
+    import rtctools_channel_flow
+
+    media = Path(rtctools_channel_flow.__file__).parent / "modelica/Deltares/ChannelFlow/Media"
+    return "record FreshWater" in (media / "FreshWater.mo").read_text()
+
+
 def test_lacemodelica_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError, match="Example.bmo"):
         lacemodelica_loader.transfer_model(str(tmp_path), "Example", {})
@@ -147,8 +156,28 @@ def test_lacemodelica_missing_file(tmp_path):
 def test_lacemodelica_missing_executable(tmp_path, monkeypatch):
     (tmp_path / "Example.bmo").write_text("")
     monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setattr(lacemodelica_loader, "_has_plugin", lambda: False)
     with pytest.raises(FileNotFoundError, match="lacemodelica executable on the PATH"):
         lacemodelica_loader.transfer_model(str(tmp_path), "Example", {})
+
+
+@pytest.mark.skipif(
+    not (lacemodelica_loader._has_plugin() and shutil.which("lacemodelica")),
+    reason="needs both CasADi's lacemodelica plugin and the lacemodelica executable",
+)
+def test_lacemodelica_plugin_as_executable(tmp_path, monkeypatch):
+    """CasADi's lacemodelica plugin writes what the executable writes"""
+    bmo = BASE_MODELICA / "basic" / "Example.bmo"
+    lacemodelica_loader._translate(bmo, tmp_path / "plugin")
+    monkeypatch.setattr(lacemodelica_loader, "_has_plugin", lambda: False)
+    lacemodelica_loader._translate(bmo, tmp_path / "executable")
+    volatile = re.compile(r'(generationDateAndTime|instantiationToken)="[^"]*"')
+    for name in ("modelDescription.xml", lacemodelica_loader._ONNX):
+        a, b = (tmp_path / side / name for side in ("plugin", "executable"))
+        if name.endswith(".xml"):
+            assert volatile.sub("", a.read_text()) == volatile.sub("", b.read_text())
+        else:
+            assert a.read_bytes() == b.read_bytes()
 
 
 def test_lacemodelica_casadi_without_onnx(tmp_path, monkeypatch):
@@ -201,8 +230,11 @@ def test_lacemodelica_as_pymoca(example):
         pytest.param(
             "channel_pulse",
             marks=pytest.mark.xfail(
+                _media_are_records(),
                 raises=RuntimeError,
-                reason="Rumoca rejects rtc-tools-channel-flow: a package extends a record",
+                strict=True,
+                reason="Rumoca rejects rtc-tools-channel-flow: a package extends a record "
+                "(Deltares/rtc-tools-channel-flow#43)",
             ),
         ),
     ],

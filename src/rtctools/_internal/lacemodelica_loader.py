@@ -5,9 +5,12 @@ lacemodelica translates ``<model_folder>/<model_name>.bmo`` to a ``modelDescript
 ONNX graph of the equations, which CasADi imports. These fill a pymoca ``Model``, which pymoca then
 simplifies with the compiler options, so that rtc-tools gets what it gets from pymoca.
 
-The ``lacemodelica`` executable must be on the PATH, and CasADi must import ONNX.
+lacemodelica runs in-process when CasADi has its ``lacemodelica`` ModelicaParser plugin (a CasADi
+built with WITH_LACEMODELICA), else as the ``lacemodelica`` executable on the PATH. Both write the
+same files. CasADi must import ONNX.
 """
 
+import functools
 import re
 import shutil
 import subprocess
@@ -26,12 +29,23 @@ _CASADI_REQUIRED = (
 )
 
 
+@functools.cache
+def _has_plugin() -> bool:
+    """Whether CasADi has the lacemodelica ModelicaParser plugin"""
+    try:
+        ca.ModelicaParser.load_plugin("lacemodelica")
+    except (AttributeError, RuntimeError):
+        return False
+    return True
+
+
 def _executable() -> str:
     executable = shutil.which("lacemodelica")
     if executable is None:
         raise FileNotFoundError(
-            "lacemodelica not found: build it from https://github.com/yacoda/lacemodelica "
-            "and put the lacemodelica executable on the PATH"
+            "lacemodelica not found: use a CasADi with its lacemodelica plugin "
+            "(WITH_LACEMODELICA), or build lacemodelica from "
+            "https://github.com/yacoda/lacemodelica and put the lacemodelica executable on the PATH"
         )
     if not hasattr(ca, "GraphBuilder"):
         raise ImportError(_CASADI_REQUIRED)
@@ -39,6 +53,14 @@ def _executable() -> str:
 
 
 def _translate(path: Path, output: Path) -> None:
+    if _has_plugin():
+        if not hasattr(ca, "GraphBuilder"):
+            raise ImportError(_CASADI_REQUIRED)
+        try:
+            ca.ModelicaParser("lacemodelica").parse(str(path), str(output))
+        except RuntimeError as error:
+            raise RuntimeError(f"lacemodelica failed on {path}:\n{error}") from error
+        return
     command = [_executable(), str(path), "--output-dir", str(output)]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
