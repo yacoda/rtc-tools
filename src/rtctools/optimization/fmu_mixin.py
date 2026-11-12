@@ -16,6 +16,9 @@ logger = logging.getLogger("rtctools")
 
 _ROUTE_OPTIONS = ("model_format", "model_exporter", "model_exporter_flags")
 
+# Options with a default per format
+_FORMAT_DEFAULTS = ("fmu_exact_hessian",)
+
 
 def _route_by_format(cls, model_format):
     """Let the methods and properties of cls act only on instances with this model_format.
@@ -105,7 +108,10 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
 
     :cvar fmu_exact_hessian:
         Give the solver second derivatives, as finite differences of the FMU's Jacobians. If
-        ``False``, IPOPT uses a limited-memory approximation. Default is ``True``.
+        ``False``, IPOPT uses a limited-memory approximation. Default is ``True`` for ``"ode"``.
+        For ``"dae"``, where every model variable is an optimization variable and a Hessian
+        costs two FMU Jacobians per variable and time step, the default ``None`` gives it only
+        to small FMUs (at most 20 unknowns).
 
     The other options belong to one format: ``fmu_free_initial_input_derivatives`` to ``"dae"``,
     and ``fmu_analytic_derivatives``, ``fmu_analytic_outputs`` and ``fmu_seed_from_inputs`` to
@@ -134,6 +140,13 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
         for name in _ROUTE_OPTIONS:
             setattr(self, name, route_option(self, kwargs, name, getattr(FMUMixin, name)))
         check_fmu_route(self.model_format, self.model_exporter)
+        # Options that both formats declare: the default of the format, unless a subclass sets
+        # them (otherwise _FMUOdeMixin, first in the MRO, would give its default to "dae" too)
+        mixin = _FMUOdeMixin if self.model_format == "ode" else _FMUDaeMixin
+        for name in _FORMAT_DEFAULTS:
+            owner = next(c for c in type(self).__mro__ if name in vars(c))
+            if owner in (_FMUOdeMixin, _FMUDaeMixin):
+                setattr(self, name, vars(mixin)[name])
         return self
 
     def __init__(self, **kwargs):

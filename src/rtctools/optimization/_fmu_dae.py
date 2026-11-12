@@ -40,6 +40,12 @@ _JACOBIAN_ONLY = {"enable_forward": False, "enable_reverse": False}
 # model may not be defined far away. A Jacobian that is itself a finite difference needs more.
 _HESSIAN_OF_ANALYTIC = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-6}}
 _HESSIAN_OF_DIFFERENCES = {"enable_fd": True, "fd_method": "central", "fd_options": {"h": 1e-4}}
+# A finite-difference Hessian costs two FMU Jacobians (one forward directional derivative per
+# unknown each) per unknown and collocation point: for channel_wave_damping (76 unknowns, 702
+# points) two minutes per evaluation, where an iteration with IPOPT's limited-memory
+# approximation takes two seconds. The default fmu_exact_hessian = None gives the Hessian only
+# to FMUs up to this number of unknowns.
+_EXACT_HESSIAN_MAX_UNKNOWNS = 20
 # Bonmin's defaults give up on a relaxation of an FMU problem early
 _BONMIN_PATIENT = {
     "expect_infeasible_problem": "no",
@@ -145,7 +151,9 @@ class _FMUDaeMixin(OptimizationProblem):
     derivatives (``fmi3GetDirectionalDerivative``); FMU outputs use finite differences (the
     directional derivatives of OpenModelica's FMUs only cover the residuals). Second
     derivatives are finite differences of those Jacobians (:py:attr:`fmu_exact_hessian`); with
-    ``fmu_exact_hessian = False``, IPOPT uses ``hessian_approximation=limited-memory``.
+    ``fmu_exact_hessian = False``, IPOPT uses ``hessian_approximation=limited-memory``. Such a
+    Hessian costs two FMU Jacobians per FMU unknown and collocation point, so by default
+    (``None``) only FMUs with at most ``_EXACT_HESSIAN_MAX_UNKNOWNS`` unknowns get it.
 
     :cvar fmu_model_name:
         Name of the FMU file (without ``.fmu``). Default is the model name.
@@ -177,8 +185,9 @@ class _FMUDaeMixin(OptimizationProblem):
     #: FMU inputs der(u) of constant inputs u: free at t0 (as pymoca's initial derivative)
     fmu_free_initial_input_derivatives = True
 
-    #: Second derivatives for the solver, as finite differences of the FMU's Jacobians
-    fmu_exact_hessian = True
+    #: Second derivatives for the solver, as finite differences of the FMU's Jacobians. None:
+    #: only for an FMU with at most _EXACT_HESSIAN_MAX_UNKNOWNS unknowns (x, z and u).
+    fmu_exact_hessian = None
 
     # The collocation residual calls the FMU: it is never affine in the sense of is_affine
     check_collocation_linearity = False
@@ -385,7 +394,7 @@ class _FMUDaeMixin(OptimizationProblem):
 
         def options(base, hessian):
             result = _with_derivative_options(base)
-            if self.fmu_exact_hessian:
+            if self.__exact_hessian():
                 result["jacobian_options"] = {**result["jacobian_options"], **hessian}
             return result
 
@@ -596,9 +605,15 @@ class _FMUDaeMixin(OptimizationProblem):
         options["mode"] = "serial"
         return options
 
+    def __exact_hessian(self):
+        if self.fmu_exact_hessian is not None:
+            return self.fmu_exact_hessian
+        unknowns = len(self.__fmu_x) + len(self.__fmu_z) + len(self.__fmu_u)
+        return unknowns <= _EXACT_HESSIAN_MAX_UNKNOWNS
+
     def solver_options(self):
         options = super().solver_options()
-        if options.get("solver") == "ipopt" and not self.fmu_exact_hessian:
+        if options.get("solver") == "ipopt" and not self.__exact_hessian():
             options["ipopt"].setdefault("hessian_approximation", "limited-memory")
         if options.get("solver") == "bonmin":
             for key, value in _BONMIN_PATIENT.items():
