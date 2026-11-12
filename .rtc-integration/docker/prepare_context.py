@@ -59,16 +59,19 @@ def add_tree(out, repo, commit, prefix, exclude=()):
 
 def main(names):
     CONTEXT.mkdir(exist_ok=True)
-    manifest = []
+    manifest_file = CONTEXT / "MANIFEST"
+    manifest = {}
+    if manifest_file.exists():
+        manifest = dict(line.split() for line in manifest_file.read_text().splitlines() if line)
     for name, worktree, commit, exclude in pins():
         if names and name not in names:
             continue
         target = CONTEXT / f"{name}.tar"
         with tarfile.open(target, "w", format=tarfile.PAX_FORMAT) as out:
             add_tree(out, worktree, commit, "", exclude)
-        manifest.append(f"{name} {commit}")
+        manifest[name] = commit
         print(f"{target.name}: {target.stat().st_size / 1e6:.0f} MB at {commit[:10]}")
-    (CONTEXT / "MANIFEST").write_text("\n".join(manifest) + "\n")
+    manifest_file.write_text("".join(f"{n} {c}\n" for n, c in sorted(manifest.items())))
 
 
 if __name__ == "__main__":

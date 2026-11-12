@@ -56,6 +56,26 @@ RUN --mount=type=bind,source=context/openmodelica.tar,target=/ctx/openmodelica.t
     cd /; rm -rf /tmp/om; \
     /opt/openmodelica/bin/omc --version
 
+# ---------------------------------------------------------------------------- Rumoca
+# The rumoca command line tool, as .rtc-integration/build.sh of the Rumoca branch, and the FMI 3
+# headers it ships, with which rtc-tools compiles the C sources of Rumoca's FMUs. Release build
+# without incremental compilation; crates and target directory leave with the build tree.
+FROM build-tools AS rumoca
+ARG JOBS
+RUN --mount=type=bind,source=context/rumoca.tar,target=/ctx/rumoca.tar \
+    set -eux; \
+    apt-get update; apt-get install -y --no-install-recommends liblzma-dev libudev-dev; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /tmp/rumoca; tar -xf /ctx/rumoca.tar -C /tmp/rumoca; cd /tmp/rumoca; \
+    export CARGO_HOME=/tmp/rumoca/cargo-home CARGO_TARGET_DIR=/tmp/rumoca/target \
+      CARGO_INCREMENTAL=0 CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=300; \
+    cargo build --release --bin rumoca --jobs "${JOBS}"; \
+    install -D -m 755 target/release/rumoca /opt/rumoca/bin/rumoca; \
+    mkdir -p /opt/rumoca/share; \
+    cp -r crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers /opt/rumoca/share/fmi3-headers; \
+    cd /; rm -rf /tmp/rumoca; \
+    /opt/rumoca/bin/rumoca --version
+
 # ---------------------------------------------------------------------------- runtime
 # omc writes C code and compiles it for every FMU it exports: the image keeps a C toolchain and
 # cmake, and the run-time libraries omc links.
@@ -64,12 +84,15 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential gfortran cmake liblapack3 libblas3 libgomp1 libomp5 libcurl3t64-gnutls \
       libexpat1 libuuid1 libhdf5-103-1t64 libminizip1t64 zlib1g libreadline8t64 libsqlite3-0 \
-      libffi8 libstdc++6 unzip \
+      libffi8 libstdc++6 unzip liblzma5 libudev1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=omc /opt/openmodelica /opt/openmodelica
-ENV PATH=/opt/openmodelica/bin:${PATH}
+COPY --from=rumoca /opt/rumoca /opt/rumoca
+ENV PATH=/opt/openmodelica/bin:/opt/rumoca/bin:${PATH} \
+    RTCTOOLS_OMC=omc RTCTOOLS_RUMOCA=rumoca RTCTOOLS_FMI3_INCLUDE=/opt/rumoca/share/fmi3-headers
 
-# Smoke test: Base Modelica and FMUs in ODE and DAE mode (fmi-ls-dae) of a small model
+# Smoke test: Base Modelica and FMUs in ODE and DAE mode (fmi-ls-dae) of a small model, by omc
+# and by Rumoca (also its casadi-dae output, for rtc-tools' Rumoca loader)
 RUN set -eux; mkdir /tmp/smoke; cd /tmp/smoke; \
     printf 'model M\n  parameter Real k = 2;\n  Real x(start = 1, fixed = true);\n  Real y;\nequation\n  der(x) = -k * x;\n  y = x^2;\nend M;\n' > M.mo; \
     printf 'loadFile("M.mo"); getErrorString();\nwriteFile("M.bmo", instantiateModel(M)); getErrorString();\n' > bmo.mos; \
@@ -79,4 +102,10 @@ RUN set -eux; mkdir /tmp/smoke; cd /tmp/smoke; \
     mv M.fmu M_ode.fmu; \
     omc --daeMode --simCodeTarget=C+Rust --fmiInputDerivatives fmu.mos; \
     unzip -l M.fmu | grep -q "binaries/x86_64-linux/M.so"; unzip -l M.fmu | grep -q fmi-ls-dae; \
+    rumoca compile M.mo --model M --target base-modelica --output rumoca-bmo; \
+    grep -q "base 0.1.0" rumoca-bmo/M_base.mo; \
+    rumoca compile M.mo --model M --target casadi-dae --output rumoca-casadi; \
+    ls rumoca-casadi/M_casadi_dae.py; \
+    rumoca compile M.mo --model M --target fmi3 --output rumoca-fmu; \
+    test -s rumoca-fmu/M.fmu; test -s "${RTCTOOLS_FMI3_INCLUDE}/fmi3Functions.h"; \
     cd /; rm -rf /tmp/smoke
