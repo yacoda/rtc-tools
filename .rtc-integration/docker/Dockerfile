@@ -81,7 +81,7 @@ RUN set -eux; \
       git submodule init "${sub%%:*}"; \
       git config "submodule.${sub%%:*}.url" "https://github.com/OpenModelica/${sub##*:}.git"; \
     done; \
-    git submodule update --depth 1 --recursive --jobs "${JOBS}" \
+    git submodule update --init --depth 1 --recursive --jobs "${JOBS}" \
       OMCompiler/3rdParty OMCompiler/Compiler/boot/bomc OMCompiler/Examples/ModelicaTutorial; \
     export CARGO_HOME=/tmp/om/cargo-home CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=300; \
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/openmodelica \
