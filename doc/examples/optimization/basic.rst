@@ -221,3 +221,113 @@ bounds over the entire time horizon and end with a full reservoir.
 Feel free to experiment with this example. See what happens if you change the
 max of ``Q_release`` (in the Modelica file) or if you make the objective
 function negative (in the python script).
+
+.. _optimization-basic-routes:
+
+Choosing How RTC-Tools Reads the Model
+--------------------------------------
+
+So far, RTC-Tools has read the model the default way: :py:class:`ModelicaMixin
+<rtctools.optimization.modelica_mixin.ModelicaMixin>` parses the Modelica files in the ``model``
+folder with pymoca and turns them into an optimization problem. The same ``Example.mo`` can
+also reach RTC-Tools along other routes. They are chosen with a few class attributes; the
+objective, the constraints and the rest of the script stay as they are.
+
+There are two families. With ``ModelicaMixin``, RTC-Tools builds the equations of the model
+itself, symbolically: the solver sees every equation and gets exact derivatives. With
+:py:class:`FMUMixin <rtctools.optimization.fmu_mixin.FMUMixin>` in its place, the model is a
+Functional Mock-up Unit (FMU): compiled code that RTC-Tools calls as a black box.
+
+ModelicaMixin
+'''''''''''''
+
+Three attributes choose what is read and what compiles it:
+
+* ``model_format``: ``"modelica"`` (default) reads the Modelica sources (``*.mo``);
+  ``"basemodelica"`` reads ``Example.bmo``, the model flattened to Base Modelica, the
+  simplified form of Modelica that tools exchange.
+* ``model_compiler``: ``"pymoca"`` (default), ``"rumoca"`` (Modelica sources only) or
+  ``"lacemodelica"`` (Base Modelica only).
+* ``model_exporter``: with ``model_format = "basemodelica"``, what writes ``Example.bmo`` from
+  the Modelica sources at the start of every run: ``"openmodelica"`` (``omc``) or
+  ``"rumoca"``. The default ``None`` reads an ``Example.bmo`` that is already there.
+
+For example, to let OpenModelica flatten the model and pymoca read the result, the class of
+this example becomes:
+
+.. code-block:: python
+
+    class Example(CSVMixin, ModelicaMixin, CollocatedIntegratedOptimizationProblem):
+        model_format = "basemodelica"
+        model_exporter = "openmodelica"
+
+        ...
+
+The attributes can also be given to ``run_optimization_problem()``, for instance
+``run_optimization_problem(Example, model_compiler="rumoca")``, to try a route without
+editing the class.
+
+All these routes end in the same kind of model, so they solve the same optimization problem
+and take about as long as the default.
+
+FMUMixin
+''''''''
+
+``FMUMixin`` reads ``<model folder>/Example.fmu``, an FMI 3.0 Model Exchange FMU. Its
+``model_format`` says how the FMU is used:
+
+* ``"ode"`` (default): a plain FMU that computes ``der(x) = f(t, x, u)`` and solves the other
+  equations inside. Only the states and the controls are optimization variables.
+* ``"dae"``: an FMU with the fmi-ls-dae layered standard, which exposes the equations as
+  residuals, so that every model variable is an optimization variable, as with
+  ``ModelicaMixin``.
+
+With ``model_exporter = "openmodelica"`` or ``"rumoca"`` (``"ode"`` only), RTC-Tools exports
+the FMU from the Modelica files itself at the start of every run. The FMU version of this
+example is ``src/example_fmu.py``:
+
+.. literalinclude:: ../../../examples/basic/src/example_fmu.py
+  :language: python
+  :pyobject: Example
+  :end-before: def objective
+  :lineno-match:
+
+Here the only change, apart from the import, is ``FMUMixin`` instead of ``ModelicaMixin`` and
+``model_format = "dae"``; the FMU ``model/Example.fmu`` has to be exported beforehand.
+
+Which Route to Choose
+'''''''''''''''''''''
+
+* **Start with the default** (``ModelicaMixin`` with pymoca). It needs nothing but the Python
+  packages, and the examples are written for it.
+* **Base Modelica** helps when another tool, such as OpenModelica, should flatten the model:
+  for a library that pymoca does not parse, or to check that two tools read a model the same
+  way.
+* **Rumoca** compiles Modelica sources fast and checks them strictly against the Modelica
+  specification, which makes it a good second opinion on a model.
+* **FMUs** let RTC-Tools optimize a model that only exists as an FMU, for example one exported
+  from another modelling tool. They have costs: the solver sees the FMU through its
+  Jacobians only, so it needs more iterations and each one takes longer, and ``delay()``
+  and events are not supported. Prefer ``"dae"`` for models with algebraic equations, as the
+  solver then also sees the algebraic variables.
+
+What each route needs installed:
+
+=============================  ==========================================================
+Route                          Needs
+=============================  ==========================================================
+``ModelicaMixin``, pymoca      the RTC-Tools Python packages (default)
+Base Modelica, pymoca          a pymoca that reads Base Modelica (its ``basemodelica``
+                               option)
+Base Modelica, lacemodelica    a CasADi built with ONNX import and its ``lacemodelica``
+                               plugin
+Rumoca, or Rumoca as exporter  the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
+OpenModelica as exporter       the ``omc`` command (``RTCTOOLS_OMC``)
+``FMUMixin``, ``"dae"``        a CasADi with fmi-ls-dae import; for the export, an
+                               OpenModelica with fmi-ls-dae export (``--daeMode``)
+``FMUMixin``, ``"ode"``        an FMI 3.0 FMU; RTC-Tools compiles Rumoca's source FMUs with
+                               the FMI 3 headers (``RTCTOOLS_FMI3_INCLUDE``)
+=============================  ==========================================================
+
+This example solves on every route with the same result. For a larger model, check that a
+route gives the same answer as the default before relying on it.
