@@ -1,8 +1,0 @@
-# name       worktree                                              commit    [left-out top-level folders]
-openmodelica /home/yacoda/shell/OpenModelica/om-integration       bc45249dd2d792b0ee0a746fefd4d849576ec8de OMSimulator,testsuite,doc,OMParser,OMEdit,OMNotebook,OMOptim,OMPlot,OMShell,OMSens_Qt
-rumoca       /home/yacoda/shell/integration/rumoca                599cb194c7a66f3693f057f5d26916467457e173
-casadi       /home/yacoda/shell/integration/casadi                decda6b6472e26723baac8e3905ff4504bd7b985
-swig         /home/yacoda/programs/swig                            65c2ff7fa7cf4a7895b2e9946b572b0ba1958ba0
-pymoca       /home/yacoda/shell/integration/pymoca                2e86d06e4b3f8ea743076ee847dea34f1440043b
-channel-flow /home/yacoda/shell/integration/rtc-tools-channel-flow 23325959899ba209c07a95318256bb2f41528e11
-rtc-tools    /home/yacoda/shell/integration/rtc-tools             b84e6a5fdded53bf03b2b21688a5b51165e6abd9

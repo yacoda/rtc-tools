@@ -1,20 +1,40 @@
 # syntax=docker/dockerfile:1.6
 #
-# The rtc-integration chain in one image: OpenModelica (omc), Rumoca and CasADi of their
-# rtc-integration branches, built from source on Ubuntu 24.04.
+# The rtc-integration chain in one image: OpenModelica (omc), Rumoca, CasADi (with the lacemodelica
+# plugin), pymoca, rtc-tools-channel-flow and rtc-tools of their rtc-integration branches, built
+# from source on Ubuntu 24.04.
 #
-# The branches are local, so the sources come from exports of the pinned commits (pins), made by
-# prepare_context.py into context/. Each tool is built in its own stage, in one RUN that unpacks
-# the sources, builds, installs to /opt/<tool> and deletes sources, build tree and download caches
-# again: a stage keeps its installation only, and the final stage copies just /opt/<tool>.
+# Everything comes from public endpoints: each repository is fetched from GitHub at the commit
+# pinned below (the rtc-integration branches on github.com/yacoda), so the image builds on any
+# machine and needs no build context. Each tool is built in its own stage, in one RUN that
+# fetches the sources, builds, installs to /opt/<tool> and deletes sources, build tree and
+# download caches again: a stage keeps its installation only, and the final stage copies just
+# /opt/<tool>.
 #
-# usage:
-#   python3 prepare_context.py
-#   docker build --pull -t rtc-integration -f Dockerfile .
-#   docker builder prune -f     # the build cache keeps the stages' layers
+# usage, from anywhere:
+#   docker build --pull -t rtc-integration \
+#     https://github.com/yacoda/rtc-tools.git#rtc-integration:.rtc-integration/docker
+#   docker run --rm rtc-integration      # runs the route matrix (tests/routes)
+#   docker builder prune -f              # the build cache keeps the stages' layers
 
 ARG UBUNTU=ubuntu:24.04
 ARG JOBS=8
+
+# The pinned commits (repository and commit per stage)
+ARG OPENMODELICA_REPO=https://github.com/yacoda/OpenModelica.git
+ARG OPENMODELICA_COMMIT=bc45249dd2d792b0ee0a746fefd4d849576ec8de
+ARG RUMOCA_REPO=https://github.com/yacoda/rumoca.git
+ARG RUMOCA_COMMIT=599cb194c7a66f3693f057f5d26916467457e173
+ARG SWIG_REPO=https://github.com/jaeandersson/swig.git
+ARG SWIG_COMMIT=65c2ff7fa7cf4a7895b2e9946b572b0ba1958ba0
+ARG CASADI_REPO=https://github.com/yacoda/casadi.git
+ARG CASADI_COMMIT=2a526203fd4c8881c5e2bcaf57685249a262d521
+ARG PYMOCA_REPO=https://github.com/yacoda/pymoca.git
+ARG PYMOCA_COMMIT=2e86d06e4b3f8ea743076ee847dea34f1440043b
+ARG CHANNEL_FLOW_REPO=https://github.com/yacoda/rtc-tools-channel-flow.git
+ARG CHANNEL_FLOW_COMMIT=23325959899ba209c07a95318256bb2f41528e11
+ARG RTC_TOOLS_REPO=https://github.com/yacoda/rtc-tools.git
+ARG RTC_TOOLS_COMMIT=57d564c0c5c43f463a2380844b662ddc4952961c
 
 # ---------------------------------------------------------------------------- base
 FROM ${UBUNTU} AS base
@@ -34,6 +54,11 @@ RUN apt-get update \
       libexpat1-dev libomp-dev libboost-dev libminizip-dev zlib1g-dev libreadline-dev \
       libncurses-dev libsqlite3-dev libffi-dev zip unzip git python3 \
  && rm -rf /var/lib/apt/lists/*
+# fetch-commit <repository> <commit> <folder>: a shallow checkout of one commit
+RUN printf '%s\n' '#!/bin/sh' 'set -eu' 'git init -q "$3"' \
+      'git -C "$3" fetch -q --depth 1 "$1" "$2"' 'git -C "$3" checkout -q FETCH_HEAD' \
+      > /usr/local/bin/fetch-commit \
+ && chmod +x /usr/local/bin/fetch-commit
 ENV RUSTUP_HOME=/opt/rustup PATH=/opt/cargo/bin:${PATH}
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | CARGO_HOME=/opt/cargo sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
@@ -45,9 +70,19 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 # crates go to a CARGO_HOME inside the build tree, so that they leave with it.
 FROM build-tools AS omc
 ARG JOBS
-RUN --mount=type=bind,source=context/openmodelica.tar,target=/ctx/openmodelica.tar \
-    set -eux; \
-    mkdir -p /tmp/om; tar -xf /ctx/openmodelica.tar -C /tmp/om; cd /tmp/om; \
+ARG OPENMODELICA_REPO
+ARG OPENMODELICA_COMMIT
+# The submodules the build uses; their .gitmodules URLs are relative, so they point at
+# OpenModelica's own repositories (the integration branch changes none of them)
+RUN set -eux; \
+    fetch-commit "${OPENMODELICA_REPO}" "${OPENMODELICA_COMMIT}" /tmp/om; cd /tmp/om; \
+    for sub in OMCompiler/3rdParty:OMCompiler-3rdParty OMCompiler/Compiler/boot/bomc:OMBootstrapping \
+               OMCompiler/Examples/ModelicaTutorial:ModelicaTutorial; do \
+      git submodule init "${sub%%:*}"; \
+      git config "submodule.${sub%%:*}.url" "https://github.com/OpenModelica/${sub##*:}.git"; \
+    done; \
+    git submodule update --depth 1 --recursive --jobs "${JOBS}" \
+      OMCompiler/3rdParty OMCompiler/Compiler/boot/bomc OMCompiler/Examples/ModelicaTutorial; \
     export CARGO_HOME=/tmp/om/cargo-home CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=300; \
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/openmodelica \
       -DOM_ENABLE_GUI_CLIENTS=OFF -DOM_ENABLE_OMSIMULATOR=OFF -DOM_ENABLE_TESTSUITE=OFF \
@@ -62,11 +97,12 @@ RUN --mount=type=bind,source=context/openmodelica.tar,target=/ctx/openmodelica.t
 # without incremental compilation; crates and target directory leave with the build tree.
 FROM build-tools AS rumoca
 ARG JOBS
-RUN --mount=type=bind,source=context/rumoca.tar,target=/ctx/rumoca.tar \
-    set -eux; \
+ARG RUMOCA_REPO
+ARG RUMOCA_COMMIT
+RUN set -eux; \
     apt-get update; apt-get install -y --no-install-recommends liblzma-dev libudev-dev; \
     rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /tmp/rumoca; tar -xf /ctx/rumoca.tar -C /tmp/rumoca; cd /tmp/rumoca; \
+    fetch-commit "${RUMOCA_REPO}" "${RUMOCA_COMMIT}" /tmp/rumoca; cd /tmp/rumoca; \
     export CARGO_HOME=/tmp/rumoca/cargo-home CARGO_TARGET_DIR=/tmp/rumoca/target \
       CARGO_INCREMENTAL=0 CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=300; \
     cargo build --release --bin rumoca --jobs "${JOBS}"; \
@@ -81,11 +117,12 @@ RUN --mount=type=bind,source=context/rumoca.tar,target=/ctx/rumoca.tar \
 # CasADi stage uses it.
 FROM build-tools AS swig
 ARG JOBS
-RUN --mount=type=bind,source=context/swig.tar,target=/ctx/swig.tar \
-    set -eux; \
+ARG SWIG_REPO
+ARG SWIG_COMMIT
+RUN set -eux; \
     apt-get update; apt-get install -y --no-install-recommends libpcre2-dev; \
     rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /tmp/swig; tar -xf /ctx/swig.tar -C /tmp/swig; cd /tmp/swig; \
+    fetch-commit "${SWIG_REPO}" "${SWIG_COMMIT}" /tmp/swig; cd /tmp/swig; \
     ./autogen.sh; ./configure --prefix=/opt/swig --without-alllang --with-python3; \
     make -j "${JOBS}"; make install; \
     cd /; rm -rf /tmp/swig; \
@@ -94,21 +131,37 @@ RUN --mount=type=bind,source=context/swig.tar,target=/ctx/swig.tar \
 # ---------------------------------------------------------------------------- CasADi
 # .rtc-integration/build.sh of the CasADi branch, for the system Python 3.12: FMI 3 import
 # (fmi-ls-dae), the ONNX translator, the lacemodelica ModelicaParser plugin (lacemodelica is
-# fetched from GitHub at the commit the build script pins) and the solvers of the rtc-tools examples. The external
-# projects it downloads and builds (IPOPT, MUMPS, HiGHS, Bonmin, protobuf, ONNX, ...) leave with
+# fetched from GitHub at the commit the build script pins) and the solvers of the rtc-tools
+# examples. The external projects it downloads and builds (IPOPT, MUMPS, HiGHS, Bonmin, protobuf, ONNX, ...) leave with
 # the build tree; the installation is the Python package casadi and its libraries.
 FROM build-tools AS casadi
 ARG JOBS
+ARG CASADI_REPO
+ARG CASADI_COMMIT
 COPY --from=swig /opt/swig /opt/swig
-RUN --mount=type=bind,source=context/casadi.tar,target=/ctx/casadi.tar \
-    set -eux; \
+RUN set -eux; \
     apt-get update; apt-get install -y --no-install-recommends python3-dev python3-numpy libpcre2-8-0 wget; \
     rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /tmp/casadi; tar -xf /ctx/casadi.tar -C /tmp/casadi; cd /tmp/casadi; \
+    fetch-commit "${CASADI_REPO}" "${CASADI_COMMIT}" /tmp/casadi; cd /tmp/casadi; \
     PYTHON=/usr/bin/python3 SWIG=/opt/swig/bin/swig JOBS="${JOBS}" ./.rtc-integration/build.sh; \
     mkdir -p /opt; cp -r install /opt/casadi; \
     cd /; rm -rf /tmp/casadi; \
     PYTHONPATH=/opt/casadi python3 -c "import casadi; print(casadi.__version__)"
+
+# ---------------------------------------------------------------------------- Python sources
+# pymoca, rtc-tools-channel-flow and rtc-tools, fetched here, where git is, for the last stage
+FROM build-tools AS python-sources
+ARG PYMOCA_REPO
+ARG PYMOCA_COMMIT
+ARG CHANNEL_FLOW_REPO
+ARG CHANNEL_FLOW_COMMIT
+ARG RTC_TOOLS_REPO
+ARG RTC_TOOLS_COMMIT
+RUN set -eux; \
+    fetch-commit "${PYMOCA_REPO}" "${PYMOCA_COMMIT}" /src/pymoca; \
+    fetch-commit "${CHANNEL_FLOW_REPO}" "${CHANNEL_FLOW_COMMIT}" /src/channel-flow; \
+    fetch-commit "${RTC_TOOLS_REPO}" "${RTC_TOOLS_COMMIT}" /src/rtc-tools; \
+    rm -rf /src/*/.git
 
 # ---------------------------------------------------------------------------- runtime
 # omc writes C code and compiles it for every FMU it exports: the image keeps a C toolchain and
@@ -191,23 +244,19 @@ RUN apt-get update \
  && echo /opt/casadi > "$(/opt/venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/rtc-integration.pth"
 ENV PATH=/opt/venv/bin:${PATH}
 
-# pymoca and rtc-tools-channel-flow are installed and their sources removed; rtc-tools stays in
-# /opt/rtc-tools (editable), as its tests and examples are what the image runs. The exports have
-# no git history, so the hatch-vcs versions are given.
-RUN --mount=type=bind,source=context/pymoca.tar,target=/ctx/pymoca.tar \
-    --mount=type=bind,source=context/channel-flow.tar,target=/ctx/channel-flow.tar \
-    --mount=type=bind,source=context/rtc-tools.tar,target=/ctx/rtc-tools.tar \
+# pymoca and rtc-tools-channel-flow are installed from the python-sources stage; rtc-tools is
+# copied to /opt/rtc-tools (editable), as its tests and examples are what the image runs. The
+# sources have no git history, so the hatch-vcs versions are given.
+COPY --from=python-sources /src/rtc-tools /opt/rtc-tools
+RUN --mount=type=bind,from=python-sources,source=/src,target=/src \
     set -eux; \
-    mkdir -p /tmp/src/pymoca /tmp/src/channel-flow /opt/rtc-tools; \
-    tar -xf /ctx/pymoca.tar -C /tmp/src/pymoca; \
-    tar -xf /ctx/channel-flow.tar -C /tmp/src/channel-flow; \
-    tar -xf /ctx/rtc-tools.tar -C /opt/rtc-tools; \
-    pip install --no-cache-dir --no-deps /tmp/src/pymoca; \
+    cp -r /src/pymoca /src/channel-flow /tmp/; \
+    pip install --no-cache-dir --no-deps /tmp/pymoca; \
     SETUPTOOLS_SCM_PRETEND_VERSION=1.5.0+rtc.integration \
-      pip install --no-cache-dir --no-deps /tmp/src/channel-flow; \
+      pip install --no-cache-dir --no-deps /tmp/channel-flow; \
     SETUPTOOLS_SCM_PRETEND_VERSION=2.9.0+rtc.integration \
       pip install --no-cache-dir --no-deps -e /opt/rtc-tools; \
-    rm -rf /tmp/src; \
+    rm -rf /tmp/pymoca /tmp/channel-flow; \
     python -c "import casadi, pymoca, rtctools, rtctools_channel_flow; print(casadi.__file__, pymoca.__version__, rtctools.__version__)"
 
 WORKDIR /opt/rtc-tools
