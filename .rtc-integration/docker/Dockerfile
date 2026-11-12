@@ -76,6 +76,39 @@ RUN --mount=type=bind,source=context/rumoca.tar,target=/ctx/rumoca.tar \
     cd /; rm -rf /tmp/rumoca; \
     /opt/rumoca/bin/rumoca --version
 
+# ---------------------------------------------------------------------------- SWIG
+# CasADi's Python interface is generated with its own SWIG fork (jaeandersson/swig); only the
+# CasADi stage uses it.
+FROM build-tools AS swig
+ARG JOBS
+RUN --mount=type=bind,source=context/swig.tar,target=/ctx/swig.tar \
+    set -eux; \
+    apt-get update; apt-get install -y --no-install-recommends libpcre2-dev; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /tmp/swig; tar -xf /ctx/swig.tar -C /tmp/swig; cd /tmp/swig; \
+    ./autogen.sh; ./configure --prefix=/opt/swig --without-alllang --with-python3; \
+    make -j "${JOBS}"; make install; \
+    cd /; rm -rf /tmp/swig; \
+    /opt/swig/bin/swig -version
+
+# ---------------------------------------------------------------------------- CasADi
+# .rtc-integration/build.sh of the CasADi branch, for the system Python 3.12: FMI 3 import
+# (fmi-ls-dae), the ONNX translator and the solvers of the rtc-tools examples. The external
+# projects it downloads and builds (IPOPT, MUMPS, HiGHS, Bonmin, protobuf, ONNX, ...) leave with
+# the build tree; the installation is the Python package casadi and its libraries.
+FROM build-tools AS casadi
+ARG JOBS
+COPY --from=swig /opt/swig /opt/swig
+RUN --mount=type=bind,source=context/casadi.tar,target=/ctx/casadi.tar \
+    set -eux; \
+    apt-get update; apt-get install -y --no-install-recommends python3-dev python3-numpy libpcre2-8-0 wget; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /tmp/casadi; tar -xf /ctx/casadi.tar -C /tmp/casadi; cd /tmp/casadi; \
+    PYTHON=/usr/bin/python3 SWIG=/opt/swig/bin/swig JOBS="${JOBS}" ./.rtc-integration/build.sh; \
+    mkdir -p /opt; cp -r install /opt/casadi; \
+    cd /; rm -rf /tmp/casadi; \
+    PYTHONPATH=/opt/casadi python3 -c "import casadi; print(casadi.__version__)"
+
 # ---------------------------------------------------------------------------- runtime
 # omc writes C code and compiles it for every FMU it exports: the image keeps a C toolchain and
 # cmake, and the run-time libraries omc links.
@@ -84,10 +117,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential gfortran cmake liblapack3 libblas3 libgomp1 libomp5 libcurl3t64-gnutls \
       libexpat1 libuuid1 libhdf5-103-1t64 libminizip1t64 zlib1g libreadline8t64 libsqlite3-0 \
-      libffi8 libstdc++6 unzip liblzma5 libudev1 \
+      libffi8 libstdc++6 unzip liblzma5 libudev1 python3 python3-numpy libgfortran5 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=omc /opt/openmodelica /opt/openmodelica
 COPY --from=rumoca /opt/rumoca /opt/rumoca
+COPY --from=casadi /opt/casadi /opt/casadi
 ENV PATH=/opt/openmodelica/bin:/opt/rumoca/bin:${PATH} \
     RTCTOOLS_OMC=omc RTCTOOLS_RUMOCA=rumoca RTCTOOLS_FMI3_INCLUDE=/opt/rumoca/share/fmi3-headers
 
@@ -108,4 +142,12 @@ RUN set -eux; mkdir /tmp/smoke; cd /tmp/smoke; \
     ls rumoca-casadi/M_casadi_dae.py; \
     rumoca compile M.mo --model M --target fmi3 --output rumoca-fmu; \
     test -s rumoca-fmu/M.fmu; test -s "${RTCTOOLS_FMI3_INCLUDE}/fmi3Functions.h"; \
+    PYTHONPATH=/opt/casadi python3 -c "import casadi as ca, glob, os; \
+assert hasattr(ca, 'GraphBuilder'), 'no GraphBuilder'; \
+assert glob.glob(os.path.dirname(ca.__file__) + '/libcasadi_graphmodel_onnx*'), 'no ONNX import'; \
+print('casadi', ca.__version__)"; \
+    mkdir M_dae; cd M_dae; unzip -q ../M.fmu; cd ..; \
+    PYTHONPATH=/opt/casadi python3 -c "import casadi as ca; \
+dae = ca.DaeBuilder('M', '/tmp/smoke/M_dae'); \
+print('fmi-ls-dae import:', dae.x(), dae.z())"; \
     cd /; rm -rf /tmp/smoke
