@@ -148,6 +148,10 @@ assert hasattr(ca, 'GraphBuilder'), 'no GraphBuilder'; \
 assert glob.glob(os.path.dirname(ca.__file__) + '/libcasadi_graphmodel_onnx*'), 'no ONNX import'; \
 print('casadi', ca.__version__)"; \
     PYTHONPATH=/opt/casadi python3 -c "import casadi as ca; \
+[ca.load_nlpsol(n) for n in ('ipopt', 'bonmin')]; [ca.load_conic(n) for n in ('cbc', 'clp', 'highs')]; \
+x = ca.MX.sym('x'); s = ca.nlpsol('s', 'ipopt', {'x': x, 'f': (x - 1)**2}, {'print_time': False, 'ipopt.print_level': 0}); \
+assert abs(float(s(x0=0)['x']) - 1) < 1e-8; print('solver plugins and an IPOPT solve: ok')"; \
+    PYTHONPATH=/opt/casadi python3 -c "import casadi as ca; \
 ca.ModelicaParser('lacemodelica').parse('/tmp/smoke/M.bmo', '/tmp/smoke/M_lace'); \
 g = ca.GraphBuilder('/tmp/smoke/M_lace/extra/org.lacemodelica.ls-onnx-serialization/model.onnx').create('f', {'symbolic': True}); \
 print('lacemodelica plugin:', g.name_in(), g.name_out())"; \
