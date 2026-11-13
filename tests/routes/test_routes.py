@@ -105,10 +105,6 @@ _NO_FUNCTIONS_LACE = (
     "transpose()"
 )
 _SINGULAR = "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
-_UNDERDETERMINED_FMU = (
-    "OpenModelica refuses the FMU export: the model is under-determined by design (one variable "
-    "left to rtc-tools), and an FMU must be balanced; the ODE experiment edited the model"
-)
 
 _FMI3_ARRAYS = (
     "OpenModelica's ODE FMU export has FMI 3 array variables (der(middle.H), <Dimension>); "
@@ -125,24 +121,26 @@ KNOWN_FAILURES = {
     **{(d, "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE for d in _WAVE_DAMPING},
     **{(d, "fmu-ode-rumoca"): _SINGULAR for d in _WAVE_DAMPING},
     **{(d, "fmu-ode-openmodelica"): _FMI3_ARRAYS for d in _WAVE_DAMPING},
-    ("pumped_hydropower_system/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
-    ("pumped_hydropower_system/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
     ("pumped_hydropower_system/src/example.py", "fmu-ode-rumoca"): (
         "Rumoca's FMI C profile cannot execute the discrete Boolean Turbine_is_on (\"executes "
         'only discrete rows whose pre follows the current pass")'
     ),
     ("cascading_channels/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
     ("cascading_channels/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
-    ("cascading_channels/src/example.py", "fmu-ode-openmodelica"): _UNDERDETERMINED_FMU,
+    ("cascading_channels/src/example.py", "fmu-ode-openmodelica"): (
+        "exports with Level.H as an FMU input, but the goal on LowerChannel.H[1] has no finite "
+        "function range: the ODE FMU lacks its bounds (ValueError in _gp_validate_goals)"
+    ),
     ("cascading_channels/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
-    ("cascading_channels/src/example.py", "fmu-dae-openmodelica"): _UNDERDETERMINED_FMU,
-    ("mixed_integer/src/example.py", "fmu-dae-openmodelica"): (
-        "Bonmin: the continuous relaxation is infeasible (violation 71.4); not traced. The ODE "
-        "FMU route of the same model solves"
+    ("cascading_channels/src/example.py", "fmu-dae-openmodelica"): (
+        "Level.H becomes the FMU input Level_H_input, a control; the model needs der(Level.H) "
+        "and its derivative, and FMUMixin feeds derivatives of constant inputs (timeseries) "
+        "only (NotImplementedError: derivative of a control input)"
     ),
     ("goal_programming/src/example.py", "fmu-dae-openmodelica"): (
-        "Bonmin: the continuous relaxation is infeasible, as for mixed_integer (same orifice and "
-        "Boolean structure); not traced"
+        "solves, but the objectives per priority differ at 1e-6 (priority 2 2163.53, the "
+        "reference 2163.74): the result is sensitive to IPOPT's tolerance. At tol 1e-11, "
+        "priority 2 matches to 3.5e-7 and priority 3 to 3.5e-6, and pymoca itself moves"
     ),
     ("goal_programming/src/example.py", "fmu-ode-openmodelica"): (
         "another optimum: priority 2 objective 2163.53, the reference 2163.74; priority 3 "
@@ -154,8 +152,12 @@ KNOWN_FAILURES = {
             "refuses, and Rumoca's fmi3 target refuses delays. The ODE experiment used a variant "
             "model with the delay as an input (example_ode.py)"
         )
-        for route in ("fmu-ode-openmodelica", "fmu-ode-rumoca", "fmu-dae-openmodelica")
+        for route in ("fmu-ode-openmodelica", "fmu-ode-rumoca")
     },
+    ("integrator_delay/src/example.py", "fmu-dae-openmodelica"): (
+        "delay() becomes event indicators; needs the delay as an input with delayed feedback "
+        "(model rewrite)"
+    ),
     ("channel_pulse/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
     ("channel_pulse/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
     ("channel_pulse/src/example.py", "fmu-ode-openmodelica"): (
@@ -163,10 +165,6 @@ KNOWN_FAILURES = {
         "and the initial equations need _INITres outputs that a plain export lacks"
     ),
     ("channel_pulse/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
-    ("channel_pulse/src/example.py", "fmu-dae-openmodelica"): (
-        "use_convective_acceleration and use_inertia are fixed at export, so the variants need "
-        "one FMU each (as the FMU driver has); the inertial wave runs hit invalid numbers"
-    ),
     ("step_response/src/example.py", "bmo-rumoca-pymoca"): _NO_FUNCTIONS,
     ("step_response/src/example.py", "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE,
     ("step_response/src/example.py", "fmu-ode-openmodelica"): (
@@ -174,21 +172,24 @@ KNOWN_FAILURES = {
         "(as the FMU driver has, fmu_model_name)"
     ),
     ("step_response/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
-    ("step_response/src/example.py", "fmu-dae-openmodelica"): (
-        "use_convective_acceleration is fixed at export, so ExampleSaintVenant needs its own FMU "
-        "(as the FMU driver has, fmu_model_name)"
-    ),
     ("goal_programming/src/example.py", "fmu-ode-rumoca"): (
         "another optimum, as for fmu-ode-openmodelica: priority 2 objective 2163.53, the "
         "reference 2163.74"
     ),
 }
 
-# Drivers whose optimum is not unique: the routes reach the same objective with different
-# trajectories, so their runs are compared on the objective (OBJECTIVE_TOLERANCE, relative).
+# Drivers, or (driver, route) pairs, whose optimum is not unique: the routes reach the same
+# objective with different trajectories, so their runs are compared on the objective
+# (OBJECTIVE_TOLERANCE, relative).
 OBJECTIVE_ONLY = {
     "mixed_integer/src/example.py": "MILP: same objective on every route (2e-11), Q_pump differs",
     "goal_programming/src/example.py": "MILPs: same objective per priority, Q_orifice differs",
+    **{
+        ("pumped_hydropower_system/src/example.py", route): (
+            "LPs: same objective per priority (DAE 1e-7, ODE 1e-15), another optimal trajectory"
+        )
+        for route in ("fmu-ode-openmodelica", "fmu-dae-openmodelica")
+    },
 }
 OBJECTIVE_TOLERANCE = 1e-6
 
@@ -476,7 +477,7 @@ def test_route(driver, route, tmp_path, tmp_path_factory):
     assert not problems, f"{driver} on {route} (log: {tmp_path / 'log.txt'}):\n" + "\n".join(
         problems
     )
-    if driver in OBJECTIVE_ONLY:
+    if driver in OBJECTIVE_ONLY or (driver, route) in OBJECTIVE_ONLY:
         differences = _objective_differences(reference, records)
     else:
         differences = _differences(reference, records)
@@ -502,7 +503,11 @@ def test_reference(driver, tmp_path_factory):
 def test_known_failures_exist():
     cases = {(p.values[0], p.values[1]) for p in _cases()}
     assert not set(KNOWN_FAILURES) - cases, "known failures that are not test cases"
-    assert set(OBJECTIVE_ONLY) <= set(OPTIMIZATION_DRIVERS), (
+    objective_only = {k if isinstance(k, str) else k[0] for k in OBJECTIVE_ONLY}
+    assert objective_only <= set(OPTIMIZATION_DRIVERS), (
         "objective-only drivers that are not drivers"
+    )
+    assert {k for k in OBJECTIVE_ONLY if not isinstance(k, str)} <= cases, (
+        "objective-only (driver, route) pairs that are not test cases"
     )
     assert all(re.match(r"\S", reason) for reason in KNOWN_FAILURES.values())
