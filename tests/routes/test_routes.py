@@ -133,9 +133,11 @@ KNOWN_FAILURES = {
     ),
     ("cascading_channels/src/example.py", "fmu-ode-rumoca"): _SINGULAR,
     ("cascading_channels/src/example.py", "fmu-dae-openmodelica"): (
-        "Level.H becomes the FMU input Level_H_input, a control; the model needs der(Level.H) "
-        "and its derivative, and FMUMixin feeds derivatives of constant inputs (timeseries) "
-        "only (NotImplementedError: derivative of a control input)"
+        "the FMU lacks the parameter-dependent min of H (OpenModelica writes only literal "
+        "bounds; the wrapper input also loses H[2]'s max), so the RangeGoal has no finite "
+        "range; besides, OpenModelica drops the (1-theta)*w*der(H[2]) term once H[2] is aliased "
+        "to the input, and with 32 unknowns the limited-memory Hessian does not converge at "
+        "theta=1"
     ),
     ("goal_programming/src/example.py", "fmu-dae-openmodelica"): (
         "solves, but the objectives per priority differ at 1e-6 (priority 2 2163.53, the "
