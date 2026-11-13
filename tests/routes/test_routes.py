@@ -42,7 +42,10 @@ HOOK = Path(__file__).resolve().parent / "hook"
 TOLERANCE = 1e-4
 TIMEOUT = 3600
 # Known time-outs get a shorter limit, so that a run of the matrix does not wait for them
-SHORT_TIMEOUT = {}
+SHORT_TIMEOUT = {
+    # theta=0 alone takes 65-90 s; theta=1 stalls (KNOWN_FAILURES)
+    ("channel_wave_damping/src/example_local_control.py", "fmu-ode-openmodelica"): 300,
+}
 
 REFERENCE = "pymoca"
 
@@ -120,7 +123,13 @@ KNOWN_FAILURES = {
     **{(d, "bmo-rumoca-pymoca"): _NO_FUNCTIONS for d in _WAVE_DAMPING},
     **{(d, "bmo-rumoca-lacemodelica"): _NO_FUNCTIONS_LACE for d in _WAVE_DAMPING},
     **{(d, "fmu-ode-rumoca"): _SINGULAR for d in _WAVE_DAMPING},
-    **{(d, "fmu-ode-openmodelica"): _FMI3_ARRAYS for d in _WAVE_DAMPING},
+    ("channel_wave_damping/src/example_local_control.py", "fmu-ode-openmodelica"): (
+        "the plain ODE FMU has no _INITres outputs, so the initial equations (Q[2:5] = Inflow_Q "
+        "per reach, PID error_integral = 0) are dropped: 14 free initial states, and IPOPT "
+        "stalls in restoration at theta=1. With the 14 conditions as t0 constraints it solves "
+        "and matches pymoca"
+    ),
+    ("channel_wave_damping/src/example_optimization.py", "fmu-ode-openmodelica"): _FMI3_ARRAYS,
     ("pumped_hydropower_system/src/example.py", "fmu-ode-rumoca"): (
         "Rumoca's FMI C profile cannot execute the discrete Boolean Turbine_is_on (\"executes "
         'only discrete rows whose pre follows the current pass")'
