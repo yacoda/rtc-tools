@@ -104,8 +104,9 @@ _NO_FUNCTIONS = (
     "Rumoca's base-modelica target writes no functions: smooth_switch is called, not defined"
 )
 _NO_FUNCTIONS_LACE = (
-    "Rumoca's base-modelica target writes no functions (smooth_switch), and lacemodelica has no "
-    "transpose()"
+    "lacemodelica accepts only integer literals as slice bounds and indices: "
+    "[2:'Channel.n_level_nodes'] fails with \"Error converting LHS of eq equation N: stoi\"; "
+    "besides, Rumoca's base-modelica target writes no functions (smooth_switch)"
 )
 _SINGULAR = "Rumoca's fmi3 export: DAE structural proof failed, structurally singular system"
 
