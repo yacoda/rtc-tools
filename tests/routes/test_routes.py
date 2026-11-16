@@ -17,7 +17,7 @@ missing tool is a failure. test_environment lists what is missing:
 * omc of the OpenModelica rtc-integration branch: ``RTCTOOLS_OMC`` or ``omc``.
 * rumoca of the Rumoca rtc-integration branch (casadi-dae target): ``RTCTOOLS_RUMOCA`` or
   ``rumoca``.
-* lacemodelica: CasADi's lacemodelica plugin (WITH_LACEMODELICA), or the executable on the PATH.
+* lacemodelica: CasADi's lacemodelica plugin (WITH_LACEMODELICA), imported by DaeBuilder.
 * pymoca and CasADi of their rtc-integration branches: Base Modelica, ONNX import, fmi-ls-dae.
 
 These tests run the examples many times, and are not part of the default test run. Run them with
@@ -264,10 +264,12 @@ def test_environment():
     include = os.environ.get("RTCTOOLS_FMI3_INCLUDE", "")
     if not include or not os.path.isfile(os.path.join(include, "fmi3Functions.h")):
         missing.append("FMI 3 headers for Rumoca's source FMUs (RTCTOOLS_FMI3_INCLUDE)")
-    from rtctools._internal.lacemodelica_loader import _has_plugin
+    from rtctools._internal.lacemodelica_loader import _check_casadi
 
-    if not _has_plugin() and not shutil.which("lacemodelica"):
-        missing.append("lacemodelica: CasADi's lacemodelica plugin, or the executable on the PATH")
+    try:
+        _check_casadi()
+    except ImportError as error:
+        missing.append(f"lacemodelica: {error}")
     result = subprocess.run(
         [sys.executable, "-c", _PACKAGE_CHECK], capture_output=True, text=True, env=_environment({})
     )
