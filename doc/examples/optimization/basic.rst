@@ -245,6 +245,9 @@ pymoca reads either. Mixins of ``rtctools.model``, added to the bases of the cla
 * A **flattener** writes ``Example.bmo`` from the Modelica files at the start of a run, and
   sets ``model_format = "basemodelica"``: ``OpenModelicaFlattenerMixin`` with OpenModelica
   (``omc``).
+* A **reader** reads the model in place of pymoca: ``LacemodelicaReaderMixin`` reads
+  ``Example.bmo`` with lacemodelica, through CasADi, so it needs
+  ``model_format = "basemodelica"``, from a flattener or set in the class.
 
 With the compiler option ``cache`` (the default), a flattener records what it flattened from in
 ``Example.bmo_cache``, next to ``Example.bmo``, and skips the tool on the next run when nothing
@@ -268,8 +271,10 @@ example becomes:
         ...
 
 To read an ``Example.bmo`` that is already there, set ``model_format = "basemodelica"`` in the
-class instead. RTC-Tools refuses a class with two flatteners, or with a flattener and
-``model_format = "modelica"``. The same works with ``SimulationProblem``.
+class instead. A flattener comes before the reader. RTC-Tools refuses a class with two
+flatteners, two readers, a flattener after the reader, a flattener with
+``model_format = "modelica"``, or a reader of the other ``model_format``. The same works with
+``SimulationProblem``.
 
 All these routes end in the same kind of model, so they solve the same optimization problem
 and take about as long as the default.
@@ -282,6 +287,8 @@ Which Route to Choose
 * **Base Modelica** helps when another tool, such as OpenModelica, should flatten the model:
   for a library that pymoca does not parse, or to check that two tools read a model the same
   way.
+* **lacemodelica** reads the Base Modelica file through CasADi, independently of pymoca,
+  which makes it a check on how pymoca reads it.
 
 What each route needs installed:
 
@@ -290,6 +297,8 @@ Route                                Needs
 ===================================  ==========================================================
 the default                          the RTC-Tools Python packages
 ``model_format = "basemodelica"``    a pymoca with the ``unquote_identifiers`` compiler option
+``LacemodelicaReaderMixin``        a CasADi built with ONNX import and its ``lacemodelica``
+                                     plugin
 ``OpenModelicaFlattenerMixin``        the ``omc`` command (``RTCTOOLS_OMC``)
 ===================================  ==========================================================
 
