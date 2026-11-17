@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from rtctools.model import _flatten
+from rtctools.model import _flatten, rumoca_flattener_mixin
 from rtctools.model.openmodelica_flattener_mixin import OpenModelicaFlattenerMixin
 
 # Stands in for omc: prints the version in VERSION, writes what the .mos script asks for, and
@@ -233,3 +233,76 @@ class OpenModelicaFlattenerTest(FlattenTest):
         before = self.runs()
         self.flatten(OpenModelicaFlattenerMixin, "copy/model", "copy/lib", True)
         self.assertEqual(self.runs(), before)
+
+
+# Stands in for rumoca: fails unless the model file and the source roots exist from its working
+# folder, a temporary one, and writes into the --output folder, as Rumoca does; counts how often
+# it flattened
+FAKE_RUMOCA = textwrap.dedent(
+    """
+    import os, sys, pathlib
+    a = sys.argv
+    if a[1:] == ["--version"]:
+        print("rumoca 1.0.0")
+        sys.exit()
+    count = int(open(COUNT).read()) if os.path.exists(COUNT) else 0
+    open(COUNT, "w").write(str(count + 1))
+    roots = [a[i + 1] for i, x in enumerate(a) if x == "--source-root"]
+    if not all(pathlib.Path(p).exists() for p in [a[2]] + roots):
+        sys.exit(1)
+    open(ARGS, "w").write("\\n".join(a[1:]))
+    out = pathlib.Path(a[a.index("--output") + 1])
+    out.mkdir()
+    (out / (a[a.index("--model") + 1] + "_base.mo")).write_text("base-modelica")
+    """
+)
+
+
+class RumocaFlattenerTest(FlattenTest):
+    def setUp(self):
+        super().setUp()
+        self.args = self.folder / "args.txt"
+        rumoca = self.folder / "rumoca.py"
+        self.count = self.folder / "count.txt"
+        rumoca.write_text(f"ARGS = {str(self.args)!r}\nCOUNT = {str(self.count)!r}\n" + FAKE_RUMOCA)
+        self.addCleanup(_flatten._tool_versions.clear)
+        environment = mock.patch.dict(os.environ, {"RTCTOOLS_RUMOCA": f"{sys.executable} {rumoca}"})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_flatten(self):
+        Flattener = rumoca_flattener_mixin.RumocaFlattenerMixin
+        target = self.flatten(Flattener, self.models, self.library, rumoca_flags=["--x"])
+        self.assertEqual(target.read_text(), "base-modelica")
+        args = self.args.read_text().splitlines()
+        self.assertEqual(
+            args[:4], ["compile", str(self.models.resolve() / "Model.mo"), "--model", "Model"]
+        )
+        self.assertIn("base-modelica", args)
+        self.assertEqual(args[-1], "--x")
+
+    def test_relative_folders(self):
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.folder)
+        target = self.flatten(rumoca_flattener_mixin.RumocaFlattenerMixin, "model", "lib")
+        self.assertEqual(target.read_text(), "base-modelica")
+
+    def test_main_file(self):
+        main_file = rumoca_flattener_mixin._main_file
+        self.assertEqual(main_file(self.models, "Model"), str(self.models / "Model.mo"))
+        (self.models / "Named.mo").write_text("within;\nmodel Inside\nend Inside;\n")
+        self.assertEqual(main_file(self.models, "Inside"), str(self.models / "Named.mo"))
+        with self.assertRaises(FileNotFoundError):
+            main_file(self.models, "Missing")
+
+    def test_cache(self):
+        Flattener = rumoca_flattener_mixin.RumocaFlattenerMixin
+        for runs, edit in ((1, False), (1, False), (2, True), (2, False)):
+            if edit:
+                (self.library / "Lib" / "package.mo").write_text("package Lib\n  // x\nend Lib;\n")
+            self.flatten(Flattener, self.models, self.library, True)
+            self.assertEqual(int(self.count.read_text()), runs)
+        self.flatten(Flattener, self.models, self.library, True, rumoca_flags=["--x"])
+        self.assertEqual(int(self.count.read_text()), 3)
+        self.flatten(Flattener, self.models, self.library)
+        self.assertEqual(int(self.count.read_text()), 4)

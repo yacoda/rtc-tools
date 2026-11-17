@@ -244,7 +244,7 @@ pymoca reads either. Mixins of ``rtctools.model``, added to the bases of the cla
 
 * A **flattener** writes ``Example.bmo`` from the Modelica files at the start of a run, and
   sets ``model_format = "basemodelica"``: ``OpenModelicaFlattenerMixin`` with OpenModelica
-  (``omc``).
+  (``omc``), ``RumocaFlattenerMixin`` with Rumoca.
 * A **reader** reads the model in place of pymoca, and needs the ``model_format`` that it
   reads. ``LacemodelicaReaderMixin`` reads ``Example.bmo`` with lacemodelica, through CasADi,
   so it needs ``model_format = "basemodelica"``, from a flattener or set in the class.
@@ -304,6 +304,7 @@ the default                          the RTC-Tools Python packages
                                      plugin
 ``RumocaReaderMixin``              the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
 ``OpenModelicaFlattenerMixin``        the ``omc`` command (``RTCTOOLS_OMC``)
+``RumocaFlattenerMixin``              the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
 ===================================  ==========================================================
 
 This example solves on every route with the same result. For a larger model, check that a
