@@ -24,3 +24,6 @@ in place of pymoca, and needs the ``model_format`` that it reads. See :ref:`the 
 
 .. autoclass:: rtctools.model.openmodelica_flattener_mixin.OpenModelicaFlattenerMixin
     :members: openmodelica_flags
+
+.. autoclass:: rtctools.model.rumoca_flattener_mixin.RumocaFlattenerMixin
+    :members: rumoca_flags
