@@ -20,5 +20,7 @@ in place of pymoca, and needs the ``model_format`` that it reads. See :ref:`the 
 
 .. autoclass:: rtctools.model.lacemodelica_reader_mixin.LacemodelicaReaderMixin
 
+.. autoclass:: rtctools.model.rumoca_reader_mixin.RumocaReaderMixin
+
 .. autoclass:: rtctools.model.openmodelica_flattener_mixin.OpenModelicaFlattenerMixin
     :members: openmodelica_flags

@@ -245,9 +245,10 @@ pymoca reads either. Mixins of ``rtctools.model``, added to the bases of the cla
 * A **flattener** writes ``Example.bmo`` from the Modelica files at the start of a run, and
   sets ``model_format = "basemodelica"``: ``OpenModelicaFlattenerMixin`` with OpenModelica
   (``omc``).
-* A **reader** reads the model in place of pymoca: ``LacemodelicaReaderMixin`` reads
-  ``Example.bmo`` with lacemodelica, through CasADi, so it needs
-  ``model_format = "basemodelica"``, from a flattener or set in the class.
+* A **reader** reads the model in place of pymoca, and needs the ``model_format`` that it
+  reads. ``LacemodelicaReaderMixin`` reads ``Example.bmo`` with lacemodelica, through CasADi,
+  so it needs ``model_format = "basemodelica"``, from a flattener or set in the class.
+  ``RumocaReaderMixin`` reads the Modelica files with Rumoca, without a flattener.
 
 With the compiler option ``cache`` (the default), a flattener records what it flattened from in
 ``Example.bmo_cache``, next to ``Example.bmo``, and skips the tool on the next run when nothing
@@ -273,8 +274,8 @@ example becomes:
 To read an ``Example.bmo`` that is already there, set ``model_format = "basemodelica"`` in the
 class instead. A flattener comes before the reader. RTC-Tools refuses a class with two
 flatteners, two readers, a flattener after the reader, a flattener with
-``model_format = "modelica"``, or a reader of the other ``model_format``. The same works with
-``SimulationProblem``.
+``model_format = "modelica"``, or a reader of the other ``model_format``, such as
+``RumocaReaderMixin`` with a flattener. The same works with ``SimulationProblem``.
 
 All these routes end in the same kind of model, so they solve the same optimization problem
 and take about as long as the default.
@@ -289,6 +290,8 @@ Which Route to Choose
   way.
 * **lacemodelica** reads the Base Modelica file through CasADi, independently of pymoca,
   which makes it a check on how pymoca reads it.
+* **Rumoca** compiles Modelica sources fast and checks them strictly against the Modelica
+  specification, which makes it a good second opinion on a model.
 
 What each route needs installed:
 
@@ -299,6 +302,7 @@ the default                          the RTC-Tools Python packages
 ``model_format = "basemodelica"``    a pymoca with the ``unquote_identifiers`` compiler option
 ``LacemodelicaReaderMixin``        a CasADi built with ONNX import and its ``lacemodelica``
                                      plugin
+``RumocaReaderMixin``              the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
 ``OpenModelicaFlattenerMixin``        the ``omc`` command (``RTCTOOLS_OMC``)
 ===================================  ==========================================================
 
