@@ -2,12 +2,12 @@
 Every example driver on every model route, compared with the reference route: pymoca on the
 Modelica files.
 
-A route is a choice of the options of ModelicaMixin (model_format, model_importer,
-model_exporter), or FMUMixin in place of ModelicaMixin (model_format, model_exporter). Each
-driver runs in a copy of its example folder, with the route set by tests/routes/hook. Each of its
-runs (calls of run_optimization_problem or run_simulation_problem) must succeed and give the same
-output timeseries as on the reference route, within TOLERANCE relative to the largest value of
-each series.
+A route is a choice of mixins of rtctools.model, added to the problem class of the driver
+with the class attributes they need, or FMUMixin in place of ModelicaMixin (its options
+model_format, model_exporter). Each driver runs in a copy of its example folder, with the route
+set by tests/routes/hook. Each of its runs (calls of run_optimization_problem or
+run_simulation_problem) must succeed and give the same output timeseries as on the reference
+route, within TOLERANCE relative to the largest value of each series.
 
 Known failures are listed in KNOWN_FAILURES with their cause. They are strict xfails: a route
 that starts to work fails the test until it is taken off the list. Nothing is skipped: every route
@@ -53,24 +53,16 @@ MODELICA = {"mixin": "modelica"}
 FMU = {"mixin": "fmu"}
 ROUTES = {
     "pymoca": {**MODELICA},
-    "rumoca": {**MODELICA, "model_importer": "rumoca"},
-    "bmo-openmodelica-pymoca": {
-        **MODELICA,
-        "model_format": "basemodelica",
-        "model_exporter": "openmodelica",
-    },
-    "bmo-rumoca-pymoca": {**MODELICA, "model_format": "basemodelica", "model_exporter": "rumoca"},
+    "rumoca": {**MODELICA, "mixins": ["RumocaReaderMixin"]},
+    "bmo-openmodelica-pymoca": {**MODELICA, "mixins": ["OpenModelicaFlattenerMixin"]},
+    "bmo-rumoca-pymoca": {**MODELICA, "mixins": ["RumocaFlattenerMixin"]},
     "bmo-openmodelica-lacemodelica": {
         **MODELICA,
-        "model_format": "basemodelica",
-        "model_exporter": "openmodelica",
-        "model_importer": "lacemodelica",
+        "mixins": ["OpenModelicaFlattenerMixin", "LacemodelicaReaderMixin"],
     },
     "bmo-rumoca-lacemodelica": {
         **MODELICA,
-        "model_format": "basemodelica",
-        "model_exporter": "rumoca",
-        "model_importer": "lacemodelica",
+        "mixins": ["RumocaFlattenerMixin", "LacemodelicaReaderMixin"],
     },
     "fmu-ode-openmodelica": {**FMU, "model_format": "ode", "model_exporter": "openmodelica"},
     "fmu-ode-rumoca": {**FMU, "model_format": "ode", "model_exporter": "rumoca"},
@@ -265,7 +257,7 @@ def test_environment():
     include = os.environ.get("RTCTOOLS_FMI3_INCLUDE", "")
     if not include or not os.path.isfile(os.path.join(include, "fmi3Functions.h")):
         missing.append("FMI 3 headers for Rumoca's source FMUs (RTCTOOLS_FMI3_INCLUDE)")
-    from rtctools._internal.lacemodelica_loader import _check_casadi
+    from rtctools.model.lacemodelica_reader_mixin import _check_casadi
 
     try:
         _check_casadi()

@@ -262,5 +262,6 @@ RUN --mount=type=bind,from=python-sources,source=/src,target=/src \
 WORKDIR /opt/rtc-tools
 # Every tool the routes need is there (omc, rumoca, the FMI 3 headers, CasADi with ONNX import,
 # fmi-ls-dae and the lacemodelica plugin, pymoca with Base Modelica)
-RUN pytest -q tests/routes/test_routes.py::test_environment tests/internal/test_model_routes.py
+RUN pytest -q tests/routes/test_routes.py::test_environment tests/model/test_route_mixins.py \
+    tests/model/test_flatteners.py tests/model/test_readers.py tests/internal/test_fmu_routes.py
 CMD ["pytest", "-n", "3", "--dist", "loadgroup", "tests/routes"]

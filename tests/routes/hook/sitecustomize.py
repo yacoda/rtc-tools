@@ -1,6 +1,7 @@
 """Put an example driver on another model route, and record what each of its runs produces.
 
-Used by tests/routes: on PYTHONPATH, with RTCTOOLS_ROUTE (JSON, the route options) and
+Used by tests/routes: on PYTHONPATH, with RTCTOOLS_ROUTE (JSON: the mixins of rtctools.model
+to add to the problem class and their class attributes, or FMUMixin and its options) and
 RTCTOOLS_ROUTE_RECORD (a folder) in the environment.
 
 Each call of run_optimization_problem or run_simulation_problem is recorded in
@@ -18,7 +19,7 @@ import rtctools.util
 
 _route = json.loads(os.environ.get("RTCTOOLS_ROUTE", "{}"))
 _record = Path(os.environ["RTCTOOLS_ROUTE_RECORD"])
-_options = {k: v for k, v in _route.items() if k != "mixin"}
+_options = {k: v for k, v in _route.items() if k not in ("mixin", "mixins", "attributes")}
 
 if _route.get("mixin") == "fmu":
     import rtctools.optimization.fmu_mixin as _fmu_mixin
@@ -31,14 +32,27 @@ if _route.get("mixin") == "fmu":
             return super().__new__(cls, *args, **{**kwargs, **_options})
 
     _modelica_mixin.ModelicaMixin = _FMURoute
-elif _options:
-    from rtctools.optimization.modelica_mixin import ModelicaMixin
-    from rtctools.simulation.simulation_problem import SimulationProblem
 
-    # Defaults of the route options; a driver that sets one itself keeps its own
-    for _cls in (ModelicaMixin, SimulationProblem):
-        for _name, _value in _options.items():
-            setattr(_cls, _name, _value)
+
+def _on_route(problem_class):
+    """The problem class with the route mixins of rtctools.model in front of its bases, and
+    the class attributes of the route, such as model_format to read a .bmo file that is there"""
+    if not (_route.get("mixins") or _route.get("attributes")):
+        return problem_class
+    import importlib
+
+    modules = {
+        "LacemodelicaReaderMixin": "lacemodelica_reader_mixin",
+        "OpenModelicaFlattenerMixin": "openmodelica_flattener_mixin",
+        "RumocaFlattenerMixin": "rumoca_flattener_mixin",
+        "RumocaReaderMixin": "rumoca_reader_mixin",
+    }
+    mixins = tuple(
+        getattr(importlib.import_module(f"rtctools.model.{modules[name]}"), name)
+        for name in _route.get("mixins", [])
+    )
+    attributes = {"__module__": problem_class.__module__, **_route.get("attributes", {})}
+    return type(problem_class.__name__, (*mixins, problem_class), attributes)
 
 
 # The objective after each priority of a goal programming problem
@@ -66,6 +80,7 @@ def _recorded(run):
         folder = _record / f"{index:02d}"
         folder.mkdir(parents=True)
         status = {"class": problem_class.__name__}
+        problem_class = _on_route(problem_class)
         _priority_objectives.clear()
         try:
             problem = run(problem_class, *args, **kwargs)
