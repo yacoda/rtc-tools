@@ -280,6 +280,36 @@ flatteners, two readers, a flattener after the reader, a flattener with
 All these routes end in the same kind of model, so they solve the same optimization problem
 and take about as long as the default.
 
+FMUs
+''''
+
+With :py:class:`FMUMixin <rtctools.optimization.fmu_mixin.FMUMixin>` in place of
+``ModelicaMixin``, the model is a Functional Mock-up Unit (FMU): compiled code that RTC-Tools
+calls as a black box, where with ``ModelicaMixin`` the solver sees every equation and gets exact
+derivatives.
+
+``FMUMixin`` reads ``<model folder>/Example.fmu``, an FMI 3.0 Model Exchange FMU. Its
+``model_format`` says how the FMU is used:
+
+* ``"ode"`` (default): a plain FMU that computes ``der(x) = f(t, x, u)`` and solves the other
+  equations inside. Only the states and the controls are optimization variables.
+* ``"dae"``: an FMU with the fmi-ls-dae layered standard, which exposes the equations as
+  residuals, so that every model variable is an optimization variable, as with
+  ``ModelicaMixin``.
+
+With ``model_exporter = "openmodelica"`` or ``"rumoca"`` (``"ode"`` only), RTC-Tools exports
+the FMU from the Modelica files itself at the start of every run. The FMU version of this
+example is ``src/example_fmu.py``:
+
+.. literalinclude:: ../../../examples/basic/src/example_fmu.py
+  :language: python
+  :pyobject: Example
+  :end-before: def objective
+  :lineno-match:
+
+Here the only change, apart from the import, is ``FMUMixin`` instead of ``ModelicaMixin`` and
+``model_format = "dae"``; the FMU ``model/Example.fmu`` has to be exported beforehand.
+
 Which Route to Choose
 '''''''''''''''''''''
 
@@ -292,6 +322,11 @@ Which Route to Choose
   which makes it a check on how pymoca reads it.
 * **Rumoca** compiles Modelica sources fast and checks them strictly against the Modelica
   specification, which makes it a good second opinion on a model.
+* **FMUs** let RTC-Tools optimize a model that only exists as an FMU, for example one exported
+  from another modelling tool. They have costs: the solver sees the FMU through its
+  Jacobians only, so it needs more iterations and each one takes longer, and ``delay()``
+  and events are not supported. Prefer ``"dae"`` for models with algebraic equations, as the
+  solver then also sees the algebraic variables.
 
 What each route needs installed:
 
@@ -305,6 +340,10 @@ the default                          the RTC-Tools Python packages
 ``RumocaReaderMixin``              the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
 ``OpenModelicaFlattenerMixin``        the ``omc`` command (``RTCTOOLS_OMC``)
 ``RumocaFlattenerMixin``              the ``rumoca`` command (``RTCTOOLS_RUMOCA``)
+``FMUMixin``, ``"dae"``              a CasADi with fmi-ls-dae import; for the export, an
+                                     OpenModelica with fmi-ls-dae export (``--daeMode``)
+``FMUMixin``, ``"ode"``              an FMI 3.0 FMU; RTC-Tools compiles Rumoca's source FMUs with
+                                     the FMI 3 headers (``RTCTOOLS_FMI3_INCLUDE``)
 ===================================  ==========================================================
 
 This example solves on every route with the same result. For a larger model, check that a
