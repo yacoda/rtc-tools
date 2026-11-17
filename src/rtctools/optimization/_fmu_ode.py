@@ -60,7 +60,8 @@ class _FMUOdeMixin(OptimizationProblem):
     The FMU is exported by OpenModelica without ``--daeMode``, with ``--tearingMethod=noTearing``
     (tearing may divide by a parameter that is 0, such as the homotopy parameter theta),
     ``--generateDynamicJacobian=symbolic -d=-disableDirectionalDerivatives`` and, if the model
-    differentiates an input, ``--fmiInputDerivatives``. Its initial solve is skipped
+    differentiates an input, ``--fmiInputDerivatives``: the flags of :py:class:`FMUMixin` with
+    ``model_exporter = "openmodelica"``. Its initial solve is skipped
     (``OMC_FMU_SKIP_INITIAL_SOLVE``, branch ``fmu-ode-mode`` of OpenModelica), as the initial
     conditions are constraints here. A plain FMU does not expose the initial equations: an export
     wrapper has to restate them as scalar outputs ``_INITres1``, ``_INITres2``, ...

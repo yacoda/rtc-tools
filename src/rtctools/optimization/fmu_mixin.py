@@ -1,9 +1,22 @@
 import functools
+import hashlib
+import logging
+
+from rtctools.model._fmu_export import (
+    check_fmu_route,
+    export_fmu,
+    has_initial_equations,
+    library_folders,
+    modification,
+    route_option,
+)
 
 from ._fmu_dae import _FMUDaeMixin
 from ._fmu_ode import _FMUOdeMixin
 
-FMU_FORMATS = ("ode", "dae")
+logger = logging.getLogger("rtctools")
+
+_ROUTE_OPTIONS = ("model_format", "model_exporter", "model_exporter_flags")
 
 # Options with a default per format
 _FORMAT_DEFAULTS = ("fmu_exact_hessian",)
@@ -70,8 +83,25 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
       variable is an optimization variable, as with :py:class:`ModelicaMixin`. See
       ``rtctools.optimization._fmu_dae._FMUDaeMixin`` for the details.
 
+    With :py:attr:`model_exporter`, rtc-tools first exports the FMU from the Modelica files of the
+    model folder, on every run. The FMU file is only replaced when its content changed. On the
+    ``"dae"`` route with ``"openmodelica"``, a calculated or structural parameter to which
+    :py:meth:`parameters` gives another value than the FMU has (e.g. a Boolean that selects
+    equations) gets an FMU of its own: a model that extends the model with that value as
+    modifier, exported to ``<fmu_model_name>_<hash>.fmu``.
+
     :cvar model_format:
         ``"ode"`` (default) or ``"dae"``.
+    :cvar model_exporter:
+        ``None`` (default: use the FMU as it is), ``"openmodelica"`` (the command ``omc``, or
+        ``RTCTOOLS_OMC``) or ``"rumoca"`` (the command ``rumoca``, or ``RTCTOOLS_RUMOCA``; ODE
+        only). The flags needed for these FMUs are those of OpenModelica branches that are not in
+        a release.
+    :cvar model_exporter_flags:
+        Command line flags of the exporter, in place of the default ones. Default is ``None``.
+    :cvar modelica_library_folders:
+        Folders with Modelica libraries for the exporter, besides those of installed packages.
+        Default is an empty list.
     :cvar fmu_model_name:
         Name of the FMU file (without ``.fmu``). Default is the model name.
     :cvar fmu_expose_locals:
@@ -93,19 +123,29 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
     and ``fmu_analytic_derivatives``, ``fmu_analytic_outputs`` and ``fmu_seed_from_inputs`` to
     ``"ode"``.
 
-    Like ``model_name``, ``model_format`` can also be given as a keyword argument.
+    Like ``model_name``, the options ``model_format``, ``model_exporter`` and
+    ``model_exporter_flags`` can also be given as keyword arguments.
     """
 
     #: "ode" (default) or "dae"
     model_format = "ode"
 
+    #: None (use the FMU as it is), "openmodelica" or "rumoca"
+    model_exporter = None
+
+    #: Flags of the exporter, in place of the default ones
+    model_exporter_flags = None
+
+    #: Modelica library folders for the exporter
+    modelica_library_folders = []
+
     def __new__(cls, *args, **kwargs):
         # The format selects the implementation of every method, so it is fixed before any
         # initializer runs
         self = super().__new__(cls)
-        self.model_format = kwargs.get("model_format", self.model_format)
-        if self.model_format not in FMU_FORMATS:
-            raise ValueError(f"model_format={self.model_format!r} is not one of 'ode', 'dae'")
+        for name in _ROUTE_OPTIONS:
+            setattr(self, name, route_option(self, kwargs, name, getattr(FMUMixin, name)))
+        check_fmu_route(self.model_format, self.model_exporter)
         # Options that both formats declare: the default of the format, unless a subclass sets
         # them (otherwise _FMUOdeMixin, first in the MRO, would give its default to "dae" too)
         mixin = _FMUOdeMixin if self.model_format == "ode" else _FMUDaeMixin
@@ -114,3 +154,52 @@ class FMUMixin(_FMUOdeMixin, _FMUDaeMixin):
             if owner in (_FMUOdeMixin, _FMUDaeMixin):
                 setattr(self, name, vars(mixin)[name])
         return self
+
+    def __init__(self, **kwargs):
+        assert "model_folder" in kwargs
+        if self.model_exporter is not None:
+            model_folder = kwargs["model_folder"]
+            model_name = kwargs.get("model_name", getattr(self, "model_name", None))
+            model_name = model_name or self.__class__.__name__
+            libraries = library_folders(self.modelica_library_folders)
+            self.__export_arguments = (
+                self.model_exporter,
+                self.model_format,
+                model_folder,
+                model_name,
+                libraries,
+                kwargs.get("fmu_folder", model_folder),
+                self.model_exporter_flags,
+            )
+            self.__variants = {}
+            export_fmu(*self.__export_arguments, target_name=self.fmu_model_name)
+            # An ODE FMU only gets initial equations from a wrapper (_INITres outputs)
+            self._fmu_sources_initialize = self.model_format == "ode" and has_initial_equations(
+                model_folder
+            )
+        super().__init__(**kwargs)
+
+    def _fmu_with_parameter_values(self, values):
+        """
+        Export the model with other values of calculated or structural parameters (DAE route):
+        a model that extends it with these values as modifiers, to
+        ``<fmu_folder>/<fmu_model_name>_<hash>.fmu``.
+        """
+        if self.model_exporter != "openmodelica":
+            return None
+        text = modification(values)
+        if text is None:
+            return None
+        if text not in self.__variants:
+            model_name = self.__export_arguments[3]
+            digest = hashlib.sha1(text.encode()).hexdigest()[:10]
+            target_name = f"{self.fmu_model_name or model_name}_{digest}"
+            logger.info(f"FMUMixin: exporting {model_name}({text}) to {target_name}.fmu")
+            self.__variants[text] = str(
+                export_fmu(
+                    *self.__export_arguments,
+                    target_name=target_name,
+                    modification=text,
+                )
+            )
+        return self.__variants[text]
