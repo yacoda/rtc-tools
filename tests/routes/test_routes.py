@@ -235,8 +235,8 @@ import glob, os
 import casadi
 from pymoca.backends.casadi._options import _get_default_options
 missing = []
-if "basemodelica" not in _get_default_options():
-    missing.append("pymoca has no basemodelica option (Base Modelica)")
+if "unquote_identifiers" not in _get_default_options():
+    missing.append("pymoca has no unquote_identifiers option (Base Modelica)")
 if not hasattr(casadi, "GraphBuilder") or not glob.glob(
     os.path.join(os.path.dirname(casadi.__file__), "libcasadi_graphmodel_onnx*")
 ):
