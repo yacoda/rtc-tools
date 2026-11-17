@@ -1,8 +1,10 @@
 """
-The reader mixins, without the problem class around them; lacemodelica compared with pymoca.
+The reader mixins, without the problem class around them; lacemodelica and Rumoca compared
+with pymoca on the examples.
 
-The integration tests are skipped without a CasADi whose DaeBuilder imports Base Modelica (its
-lacemodelica plugin and ONNX import).
+The integration tests are skipped without the tools: a CasADi whose DaeBuilder imports Base
+Modelica (its lacemodelica plugin and ONNX import), or the Rumoca executable
+(``RTCTOOLS_RUMOCA``, default ``rumoca``).
 The Base Modelica files in ``data/base_modelica`` were flattened by OpenModelica from the examples
 (``OMCallBack.exportBaseModelica`` with ``--baseModelica``).
 """
@@ -10,13 +12,14 @@ The Base Modelica files in ``data/base_modelica`` were flattened by OpenModelica
 import importlib.metadata
 import importlib.resources
 import os
+import shutil
 from pathlib import Path
 
 import casadi as ca
 import numpy as np
 import pytest
 
-from rtctools.model import _pymoca_basemodelica, lacemodelica_reader_mixin
+from rtctools.model import _pymoca_basemodelica, lacemodelica_reader_mixin, rumoca_reader_mixin
 
 EXAMPLES = Path(__file__).parents[2] / "examples"
 BASE_MODELICA = Path(__file__).parent / "data" / "base_modelica"
@@ -138,6 +141,14 @@ def assert_same_model(reference, model):
 # Without the tools
 
 
+def _media_are_records():
+    """Whether the installed rtc-tools-channel-flow declares its media as records"""
+    import rtctools_channel_flow
+
+    media = Path(rtctools_channel_flow.__file__).parent / "modelica/Deltares/ChannelFlow/Media"
+    return "record FreshWater" in (media / "FreshWater.mo").read_text()
+
+
 _TANK = """//! base 0.1.0
 package 'Tank'
   model 'Tank'
@@ -223,6 +234,17 @@ def test_lacemodelica_casadi_without_support(tmp_path, monkeypatch, missing):
         lacemodelica_reader_mixin._transfer_model(str(tmp_path), "Example", {})
 
 
+def test_rumoca_missing_executable(monkeypatch, tmp_path):
+    monkeypatch.setenv("RTCTOOLS_RUMOCA", str(tmp_path / "rumoca"))
+    with pytest.raises(FileNotFoundError, match="set RTCTOOLS_RUMOCA"):
+        rumoca_reader_mixin._transfer_model(str(EXAMPLES / "basic" / "model"), "Example", {})
+
+
+def test_rumoca_missing_model(tmp_path):
+    with pytest.raises(FileNotFoundError, match="No model Example"):
+        rumoca_reader_mixin._transfer_model(str(tmp_path), "Example", {})
+
+
 # With the tools
 
 
@@ -241,3 +263,28 @@ def test_lacemodelica_as_pymoca(example):
     else:
         pytest.skip("OpenModelica flattens this example otherwise than pymoca does")
     assert_same_model(reference, model)
+
+
+@pytest.mark.skipif(
+    shutil.which(os.environ.get("RTCTOOLS_RUMOCA", "rumoca")) is None, reason="Rumoca not found"
+)
+@pytest.mark.parametrize(
+    "example",
+    [
+        "basic",
+        pytest.param(
+            "channel_pulse",
+            marks=pytest.mark.xfail(
+                _media_are_records(),
+                raises=RuntimeError,
+                strict=True,
+                reason="Rumoca rejects rtc-tools-channel-flow: a package extends a record "
+                "(Deltares/rtc-tools-channel-flow#43)",
+            ),
+        ),
+    ],
+)
+def test_rumoca_as_pymoca(example):
+    folder = EXAMPLES / example / "model"
+    model = rumoca_reader_mixin._transfer_model(str(folder), "Example", compiler_options())
+    assert_same_model(pymoca_model(folder), model)

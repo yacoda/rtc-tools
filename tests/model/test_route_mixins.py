@@ -13,6 +13,7 @@ from rtctools._internal.modelica_mixin_base import _check_model_route, _Modelica
 from rtctools.model import lacemodelica_reader_mixin
 from rtctools.model.lacemodelica_reader_mixin import LacemodelicaReaderMixin
 from rtctools.model.openmodelica_flattener_mixin import OpenModelicaFlattenerMixin
+from rtctools.model.rumoca_reader_mixin import RumocaReaderMixin
 
 
 class Flattener:
@@ -149,6 +150,20 @@ class GuardTest(unittest.TestCase):
             TypeError, 'LacemodelicaReaderMixin, which reads Base Modelica .*"basemodelica"'
         ):
             _check_model_route(compose(LacemodelicaReaderMixin))
+
+    def test_rumoca(self):
+        # Rumoca reads the Modelica sources: no flattener, no model_format "basemodelica"
+        _check_model_route(compose(RumocaReaderMixin))
+        with self.assertRaisesRegex(
+            TypeError,
+            "RumocaReaderMixin, which reads the Modelica sources .*"
+            r"\(set by OpenModelicaFlattenerMixin\)$",
+        ):
+            _check_model_route(compose(OpenModelicaFlattenerMixin, RumocaReaderMixin))
+        with self.assertRaisesRegex(TypeError, 'reads the Modelica sources .*"modelica"'):
+            _check_model_route(compose(RumocaReaderMixin, **BASEMODELICA))
+        with self.assertRaisesRegex(TypeError, "more than one model reader"):
+            compose(LacemodelicaReaderMixin, RumocaReaderMixin, **BASEMODELICA)
 
     def test_unknown_model_format(self):
         for bases in [(), (OpenModelicaFlattenerMixin,), (BaseModelicaReader,)]:
