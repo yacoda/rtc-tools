@@ -10,6 +10,8 @@ from pathlib import Path
 from unittest import mock
 
 from rtctools._internal.modelica_mixin_base import _check_model_route, _ModelicaMixinBase
+from rtctools.model import lacemodelica_reader_mixin
+from rtctools.model.lacemodelica_reader_mixin import LacemodelicaReaderMixin
 from rtctools.model.openmodelica_flattener_mixin import OpenModelicaFlattenerMixin
 
 
@@ -139,6 +141,15 @@ class GuardTest(unittest.TestCase):
         ):
             _check_model_route(compose(OpenModelicaFlattenerMixin, model_format="modelica"))
 
+    def test_lacemodelica(self):
+        # lacemodelica reads Base Modelica: written by a flattener, or already there
+        _check_model_route(compose(OpenModelicaFlattenerMixin, LacemodelicaReaderMixin))
+        _check_model_route(compose(LacemodelicaReaderMixin, **BASEMODELICA))
+        with self.assertRaisesRegex(
+            TypeError, 'LacemodelicaReaderMixin, which reads Base Modelica .*"basemodelica"'
+        ):
+            _check_model_route(compose(LacemodelicaReaderMixin))
+
     def test_unknown_model_format(self):
         for bases in [(), (OpenModelicaFlattenerMixin,), (BaseModelicaReader,)]:
             with self.assertRaisesRegex(
@@ -214,7 +225,7 @@ class ProblemTest(unittest.TestCase):
                 script = open(sys.argv[-1]).read()
                 path = re.search(r'writeFile\\("([^"]+)"', script).group(1)
                 open(path, "w").write(
-                    "package 'Problem'\\n  model 'Problem'\\n"
+                    "//! base 0.1.0\\npackage 'Problem'\\n  model 'Problem'\\n"
                     "    Real 'z'(start = 3.0, fixed = true);\\n"
                     "  equation\\n    der('z') = -'z';\\n  end 'Problem';\\nend 'Problem';\\n"
                 )
@@ -251,9 +262,19 @@ class ProblemTest(unittest.TestCase):
         # flattener in a subclass: the subclass loads the model the flattener writes
         if not _pymoca_reads_basemodelica():
             self.skipTest("this pymoca does not read Base Modelica")
+        self.check_layered_route(PymocaBaseModelicaReader)
+
+    def test_layered_route_with_lacemodelica(self):
+        try:
+            lacemodelica_reader_mixin._check_casadi()
+        except ImportError as error:
+            self.skipTest(str(error))
+        self.check_layered_route(LacemodelicaReaderMixin)
+
+    def check_layered_route(self, reader):
         with self.omc_stand_in():
             for make in (self.optimization_class, self.simulation_class):
-                base = make(PymocaBaseModelicaReader)
+                base = make(reader)
                 with self.assertRaisesRegex(TypeError, "reads Base Modelica"):
                     base(model_folder=self.folder())
                 layered = type("Problem", (OpenModelicaFlattenerMixin, base), {})
