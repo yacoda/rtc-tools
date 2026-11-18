@@ -25,6 +25,10 @@ class ModelicaMixin(_ModelicaMixinBase, OptimizationProblem):
     :cvar modelica_library_folders:
         Folders in which any referenced Modelica libraries are to be found.
         Default is an empty list.
+    :cvar model_format:
+        What the ``model`` folder provides. ``"modelica"`` (default): the Modelica files.
+        ``"basemodelica"``: ``<model_name>.bmo``, the model flattened to Base Modelica by a tool
+        such as OpenModelica.
     """
 
     # Folders in which the referenced Modelica libraries are found
