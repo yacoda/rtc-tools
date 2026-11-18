@@ -28,7 +28,8 @@ class ModelicaMixin(_ModelicaMixinBase, OptimizationProblem):
     :cvar model_format:
         What the ``model`` folder provides. ``"modelica"`` (default): the Modelica files.
         ``"basemodelica"``: ``<model_name>.bmo``, the model flattened to Base Modelica by a tool
-        such as OpenModelica.
+        such as OpenModelica, beforehand or at every run by a flattener mixin of
+        :py:mod:`rtctools.model`, which sets this value itself.
     """
 
     # Folders in which the referenced Modelica libraries are found
