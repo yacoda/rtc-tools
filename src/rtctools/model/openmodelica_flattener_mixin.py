@@ -13,7 +13,11 @@ class OpenModelicaFlattenerMixin:
 
     At the start of a run, ``omc`` flattens the Modelica sources of the model folder, with the
     Modelica Standard Library and the library folders, to ``<model_name>.bmo`` in the model
-    folder. The file is only replaced when its content changes, so pymoca's cache stays valid; a
+    folder. With the compiler option ``cache`` (the default), the flattening is skipped when
+    ``<model_name>.bmo_cache`` records that the file was flattened from the same inputs: the
+    content of the Modelica files of the model and library folders, the flags, the model name,
+    the version of the Modelica Standard Library and the output of ``omc --version``. Otherwise
+    the file is only replaced when its content changes, so pymoca's cache stays valid; a
     hand-edited file is overwritten. pymoca then reads it, or a reader of Base Modelica listed
     after the flattener. The command is ``omc``, or ``RTCTOOLS_OMC``::
 
@@ -47,6 +51,9 @@ class OpenModelicaFlattenerMixin:
             model_name,
             compiler_options.get("library_folders", []),
             self.openmodelica_flags,
+            command=tool_command("RTCTOOLS_OMC", "omc"),
+            cache=compiler_options.get("cache", False),
+            settings={"msl_version": MSL_VERSION},
         )
         return super().pymoca_model(model_folder, model_name, compiler_options)
 

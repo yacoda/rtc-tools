@@ -22,6 +22,7 @@ examples/**/output/**/*.csv
 
 # Model caches
 *.pymoca_cache
+*.bmo_cache
 
 # Editors
 .idea
