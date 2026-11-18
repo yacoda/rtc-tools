@@ -1,11 +1,16 @@
 """model_format and the route mixins in a problem class: what the guard refuses, when the class
 is defined or when it is instantiated, and that the model is loaded from what model_format says."""
 
+import os
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from rtctools._internal.modelica_mixin_base import _check_model_route, _ModelicaMixinBase
+from rtctools.model.openmodelica_flattener_mixin import OpenModelicaFlattenerMixin
 
 
 class Flattener:
@@ -28,6 +33,18 @@ class BaseModelicaReader:
     _modelica_reads = "basemodelica"
 
 
+class PymocaBaseModelicaReader:
+    """A reader of Base Modelica that loads the model: pymoca's own reading of the .bmo"""
+
+    _modelica_route = "reader"
+    _modelica_reads = "basemodelica"
+
+    def pymoca_model(self, model_folder, model_name, compiler_options):
+        from rtctools.model._pymoca_basemodelica import _transfer_model
+
+        return _transfer_model(model_folder, model_name, compiler_options)
+
+
 def compose(*bases, **attributes):
     return type("Example", (*bases, _ModelicaMixinBase), attributes)
 
@@ -44,8 +61,14 @@ class GuardTest(unittest.TestCase):
             ((BaseModelicaReader,), BASEMODELICA),
             ((Flattener,), {}),
             ((Flattener, BaseModelicaReader), {}),
+            ((OpenModelicaFlattenerMixin,), {}),
+            ((OpenModelicaFlattenerMixin, BaseModelicaReader), {}),
         ]:
             _check_model_route(compose(*bases, **attributes))
+
+    def test_flattener_sets_model_format(self):
+        self.assertEqual(compose(OpenModelicaFlattenerMixin).model_format, "basemodelica")
+        self.assertEqual(compose().model_format, "modelica")
 
     def test_subclass_of_a_route(self):
         # The markers count where they are declared, not where they are inherited
@@ -58,6 +81,14 @@ class GuardTest(unittest.TestCase):
     def test_two_readers(self):
         with self.assertRaisesRegex(TypeError, "more than one model reader"):
             compose(BaseModelicaReader, ModelicaReader, **BASEMODELICA)
+
+    def test_two_flatteners(self):
+        with self.assertRaisesRegex(TypeError, "more than one model flattener"):
+            compose(Flattener, OpenModelicaFlattenerMixin)
+
+    def test_flattener_after_reader(self):
+        with self.assertRaisesRegex(TypeError, "after the reader .* put the flattener first"):
+            compose(BaseModelicaReader, OpenModelicaFlattenerMixin)
 
     def test_refused_in_a_subclass(self):
         # A subclass that adds a second route mixin to a valid class is refused when defined
@@ -77,7 +108,16 @@ class GuardTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "reads Base Modelica"):
             _check_model_route(base)
         _check_model_route(type("Sub", (Flattener, base), {}))
+        _check_model_route(type("Sub", (OpenModelicaFlattenerMixin, base), {}))
         _check_model_route(type("Sub", (base,), BASEMODELICA))
+
+    def test_reader_of_modelica_after_flattener(self):
+        with self.assertRaisesRegex(
+            TypeError,
+            "ModelicaReader, which reads the Modelica sources .*"
+            r"model_format is 'basemodelica' \(set by OpenModelicaFlattenerMixin\)$",
+        ):
+            _check_model_route(compose(OpenModelicaFlattenerMixin, ModelicaReader))
 
     def test_reader_of_basemodelica_with_modelica(self):
         with self.assertRaisesRegex(
@@ -94,12 +134,13 @@ class GuardTest(unittest.TestCase):
         # model_format set back to "modelica" below the flattener: its file would not be read
         with self.assertRaisesRegex(
             TypeError,
-            r"flattener Flattener, but model_format is 'modelica' \(set by Example\)",
+            "flattener OpenModelicaFlattenerMixin, but model_format is 'modelica' "
+            r"\(set by Example\)",
         ):
-            _check_model_route(compose(Flattener, model_format="modelica"))
+            _check_model_route(compose(OpenModelicaFlattenerMixin, model_format="modelica"))
 
     def test_unknown_model_format(self):
-        for bases in [(), (Flattener,), (BaseModelicaReader,)]:
+        for bases in [(), (OpenModelicaFlattenerMixin,), (BaseModelicaReader,)]:
             with self.assertRaisesRegex(
                 ValueError, "model_format is 'bmo', but it is 'modelica' or 'basemodelica'"
             ):
@@ -161,27 +202,63 @@ class ProblemTest(unittest.TestCase):
     def simulation_problem(self, *mixins, model_format=None):
         return self.simulation_class(*mixins, model_format=model_format)(model_folder=self.folder())
 
+    def omc_stand_in(self):
+        """RTCTOOLS_OMC set to a stand-in for omc, which writes a Base Modelica model of z"""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        omc = Path(temporary.name) / "omc.py"
+        omc.write_text(
+            textwrap.dedent(
+                """
+                import re, sys
+                script = open(sys.argv[-1]).read()
+                path = re.search(r'writeFile\\("([^"]+)"', script).group(1)
+                open(path, "w").write(
+                    "package 'Problem'\\n  model 'Problem'\\n"
+                    "    Real 'z'(start = 3.0, fixed = true);\\n"
+                    "  equation\\n    der('z') = -'z';\\n  end 'Problem';\\nend 'Problem';\\n"
+                )
+                """
+            )
+        )
+        return mock.patch.dict(os.environ, {"RTCTOOLS_OMC": f"{sys.executable} {omc}"})
+
     def test_refused_when_defined(self):
         # No subclass can repair these, so the class statement fails, before any loading
         for make in (self.optimization_class, self.simulation_class):
             with self.assertRaisesRegex(TypeError, "put the flattener first"):
-                make(BaseModelicaReader, Flattener)
+                make(BaseModelicaReader, OpenModelicaFlattenerMixin)
             with self.assertRaisesRegex(TypeError, "more than one model flattener"):
-                make(Flattener, OtherFlattener)
+                make(Flattener, OpenModelicaFlattenerMixin)
             with self.assertRaisesRegex(TypeError, "more than one model reader"):
                 make(BaseModelicaReader, ModelicaReader)
 
     def test_refused_when_instantiated(self):
         # A subclass could still set model_format, so the class is defined; the guard refuses
-        # its instance before loading
+        # its instance before loading, so before the flattener would run omc
         for make in (self.optimization_class, self.simulation_class):
             for mixins, model_format, error, message in [
+                ((OpenModelicaFlattenerMixin,), "modelica", TypeError, "would not be read"),
                 ((BaseModelicaReader,), None, TypeError, "reads Base Modelica"),
                 ((), "bmo", ValueError, "model_format is 'bmo'"),
             ]:
                 problem_class = make(*mixins, model_format=model_format)
                 with self.assertRaisesRegex(error, message):
                     problem_class(model_folder=self.folder())
+
+    def test_layered_route(self):
+        # The reader in a base class, which alone is refused when instantiated, and the
+        # flattener in a subclass: the subclass loads the model the flattener writes
+        if not _pymoca_reads_basemodelica():
+            self.skipTest("this pymoca does not read Base Modelica")
+        with self.omc_stand_in():
+            for make in (self.optimization_class, self.simulation_class):
+                base = make(PymocaBaseModelicaReader)
+                with self.assertRaisesRegex(TypeError, "reads Base Modelica"):
+                    base(model_folder=self.folder())
+                layered = type("Problem", (OpenModelicaFlattenerMixin, base), {})
+                problem = layered(model_folder=self.folder())
+                self.assertEqual([v.symbol.name() for v in problem._mo_pymoca_model.states], ["z"])
 
     def test_modelica_default(self):
         # model_format "modelica", the default or set, reads the Modelica sources with pymoca's
@@ -223,3 +300,13 @@ class ProblemTest(unittest.TestCase):
             self.skipTest("this pymoca reads Base Modelica")
         with self.assertRaisesRegex(RuntimeError, "cannot read Base Modelica"):
             self.optimization_problem(model_format="basemodelica")
+
+    def test_openmodelica_flattener_alone(self):
+        # OpenModelicaFlattenerMixin alone: it writes Problem.bmo (here a stand-in for omc), and
+        # pymoca reads it, as model_format is "basemodelica"
+        if not _pymoca_reads_basemodelica():
+            self.skipTest("this pymoca does not read Base Modelica")
+        with self.omc_stand_in():
+            for build in (self.optimization_problem, self.simulation_problem):
+                problem = build(OpenModelicaFlattenerMixin)
+                self.assertEqual([v.symbol.name() for v in problem._mo_pymoca_model.states], ["z"])
