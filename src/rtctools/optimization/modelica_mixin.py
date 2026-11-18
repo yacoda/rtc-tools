@@ -49,45 +49,45 @@ class ModelicaMixin(OptimizationProblem):
             else:
                 model_name = self.__class__.__name__
 
-        self.__pymoca_model = self.pymoca_model(
+        self._pymoca_model = self.pymoca_model(
             kwargs["model_folder"], model_name, self.compiler_options()
         )
 
         # Extract the CasADi MX variables used in the model
-        self.__mx = {}
-        self.__mx["time"] = [self.__pymoca_model.time]
-        self.__mx["states"] = [v.symbol for v in self.__pymoca_model.states]
-        self.__mx["derivatives"] = [v.symbol for v in self.__pymoca_model.der_states]
-        self.__mx["algebraics"] = [v.symbol for v in self.__pymoca_model.alg_states]
-        self.__mx["parameters"] = [v.symbol for v in self.__pymoca_model.parameters]
-        self.__mx["string_parameters"] = [
+        self._mx = {}
+        self._mx["time"] = [self._pymoca_model.time]
+        self._mx["states"] = [v.symbol for v in self._pymoca_model.states]
+        self._mx["derivatives"] = [v.symbol for v in self._pymoca_model.der_states]
+        self._mx["algebraics"] = [v.symbol for v in self._pymoca_model.alg_states]
+        self._mx["parameters"] = [v.symbol for v in self._pymoca_model.parameters]
+        self._mx["string_parameters"] = [
             v.name
-            for v in (*self.__pymoca_model.string_parameters, *self.__pymoca_model.string_constants)
+            for v in (*self._pymoca_model.string_parameters, *self._pymoca_model.string_constants)
         ]
-        self.__mx["control_inputs"] = []
-        self.__mx["constant_inputs"] = []
-        self.__mx["lookup_tables"] = []
+        self._mx["control_inputs"] = []
+        self._mx["constant_inputs"] = []
+        self._mx["lookup_tables"] = []
 
         # Merge with user-specified delayed feedback
-        for v in self.__pymoca_model.inputs:
-            if v.symbol.name() in self.__pymoca_model.delay_states:
+        for v in self._pymoca_model.inputs:
+            if v.symbol.name() in self._pymoca_model.delay_states:
                 # Delayed feedback variables are local to each ensemble, and
                 # therefore belong to the collection of algebraic variables,
                 # rather than to the control inputs.
-                self.__mx["algebraics"].append(v.symbol)
+                self._mx["algebraics"].append(v.symbol)
             else:
                 if v.symbol.name() in kwargs.get("lookup_tables", []):
-                    self.__mx["lookup_tables"].append(v.symbol)
+                    self._mx["lookup_tables"].append(v.symbol)
                 elif v.fixed:
-                    self.__mx["constant_inputs"].append(v.symbol)
+                    self._mx["constant_inputs"].append(v.symbol)
                 else:
-                    self.__mx["control_inputs"].append(v.symbol)
+                    self._mx["control_inputs"].append(v.symbol)
 
         # Initialize nominals and types
         # These are not in @cached dictionary properties for backwards compatibility.
         self.__python_types = AliasDict(self.alias_relation)
         for v in itertools.chain(
-            self.__pymoca_model.states, self.__pymoca_model.alg_states, self.__pymoca_model.inputs
+            self._pymoca_model.states, self._pymoca_model.alg_states, self._pymoca_model.inputs
         ):
             self.__python_types[v.symbol.name()] = v.python_type
 
@@ -95,49 +95,49 @@ class ModelicaMixin(OptimizationProblem):
         # These are not in @cached dictionary properties so that we need to create the list
         # of function arguments only once.
         variable_lists = ["states", "der_states", "alg_states", "inputs", "constants", "parameters"]
-        function_arguments = [self.__pymoca_model.time] + [
-            ca.veccat(*[v.symbol for v in getattr(self.__pymoca_model, variable_list)])
+        function_arguments = [self._pymoca_model.time] + [
+            ca.veccat(*[v.symbol for v in getattr(self._pymoca_model, variable_list)])
             for variable_list in variable_lists
         ]
 
-        self.__dae_residual = self.__pymoca_model.dae_residual_function(*function_arguments)
-        if self.__dae_residual is None:
-            self.__dae_residual = ca.MX()
+        self._dae_residual = self._pymoca_model.dae_residual_function(*function_arguments)
+        if self._dae_residual is None:
+            self._dae_residual = ca.MX()
 
-        self.__initial_residual = self.__pymoca_model.initial_residual_function(*function_arguments)
-        if self.__initial_residual is None:
-            self.__initial_residual = ca.MX()
+        self._initial_residual = self._pymoca_model.initial_residual_function(*function_arguments)
+        if self._initial_residual is None:
+            self._initial_residual = ca.MX()
 
         # Log variables in debug mode
         if logger.getEffectiveLevel() == logging.DEBUG:
             logger.debug(
                 "ModelicaMixin: Found states {}".format(
-                    ", ".join([var.name() for var in self.__mx["states"]])
+                    ", ".join([var.name() for var in self._mx["states"]])
                 )
             )
             logger.debug(
                 "ModelicaMixin: Found derivatives {}".format(
-                    ", ".join([var.name() for var in self.__mx["derivatives"]])
+                    ", ".join([var.name() for var in self._mx["derivatives"]])
                 )
             )
             logger.debug(
                 "ModelicaMixin: Found algebraics {}".format(
-                    ", ".join([var.name() for var in self.__mx["algebraics"]])
+                    ", ".join([var.name() for var in self._mx["algebraics"]])
                 )
             )
             logger.debug(
                 "ModelicaMixin: Found control inputs {}".format(
-                    ", ".join([var.name() for var in self.__mx["control_inputs"]])
+                    ", ".join([var.name() for var in self._mx["control_inputs"]])
                 )
             )
             logger.debug(
                 "ModelicaMixin: Found constant inputs {}".format(
-                    ", ".join([var.name() for var in self.__mx["constant_inputs"]])
+                    ", ".join([var.name() for var in self._mx["constant_inputs"]])
                 )
             )
             logger.debug(
                 "ModelicaMixin: Found parameters {}".format(
-                    ", ".join([var.name() for var in self.__mx["parameters"]])
+                    ", ".join([var.name() for var in self._mx["parameters"]])
                 )
             )
 
@@ -237,24 +237,24 @@ class ModelicaMixin(OptimizationProblem):
 
         # Create delayed feedback
         for delay_state, delay_argument in zip(
-            self.__pymoca_model.delay_states, self.__pymoca_model.delay_arguments, strict=True
+            self._pymoca_model.delay_states, self._pymoca_model.delay_arguments, strict=True
         ):
             delayed_feedback.append((delay_argument.expr, delay_state, delay_argument.duration))
         return delayed_feedback
 
     @property
     def dae_residual(self):
-        return self.__dae_residual
+        return self._dae_residual
 
     @property
     def dae_variables(self):
-        return self.__mx
+        return self._mx
 
     @property
     @cached
     def output_variables(self):
-        output_variables = [ca.MX.sym(variable) for variable in self.__pymoca_model.outputs]
-        output_variables.extend(self.__mx["control_inputs"])
+        output_variables = [ca.MX.sym(variable) for variable in self._pymoca_model.outputs]
+        output_variables.extend(self._mx["control_inputs"])
         return output_variables
 
     @cached
@@ -263,7 +263,7 @@ class ModelicaMixin(OptimizationProblem):
         parameters = super().parameters(ensemble_member)
 
         # Return parameter values from pymoca model
-        parameters.update({v.symbol.name(): v.value for v in self.__pymoca_model.parameters})
+        parameters.update({v.symbol.name(): v.value for v in self._pymoca_model.parameters})
 
         # Done
         return parameters
@@ -274,8 +274,8 @@ class ModelicaMixin(OptimizationProblem):
         parameters = super().string_parameters(ensemble_member)
 
         # Return parameter values from pymoca model
-        parameters.update({v.name: v.value for v in self.__pymoca_model.string_parameters})
-        parameters.update({v.name: v.value for v in self.__pymoca_model.string_constants})
+        parameters.update({v.name: v.value for v in self._pymoca_model.string_parameters})
+        parameters.update({v.name: v.value for v in self._pymoca_model.string_constants})
 
         # Done
         return parameters
@@ -288,12 +288,10 @@ class ModelicaMixin(OptimizationProblem):
 
         # Parameter values
         parameters = self.parameters(ensemble_member)
-        parameter_values = [
-            parameters.get(param.name(), param) for param in self.__mx["parameters"]
-        ]
+        parameter_values = [parameters.get(param.name(), param) for param in self._mx["parameters"]]
 
         # Initial conditions obtained from start attributes.
-        for v in self.__pymoca_model.states:
+        for v in self._pymoca_model.states:
             if v.fixed:
                 sym_name = v.symbol.name()
                 start = v.start
@@ -303,7 +301,7 @@ class ModelicaMixin(OptimizationProblem):
                     if isinstance(start, ca.MX) and not start.is_constant():
                         [start] = substitute_in_external(
                             [start],
-                            self.__mx["parameters"],
+                            self._mx["parameters"],
                             parameter_values,
                             resolve_numerically=True,
                         )
@@ -323,7 +321,7 @@ class ModelicaMixin(OptimizationProblem):
 
     @property
     def initial_residual(self):
-        return self.__initial_residual
+        return self._initial_residual
 
     @cached
     @ensemble_bounds_check
@@ -336,13 +334,11 @@ class ModelicaMixin(OptimizationProblem):
 
         # Parameter values
         parameters = self.parameters(ensemble_member)
-        parameter_values = [
-            parameters.get(param.name(), param) for param in self.__mx["parameters"]
-        ]
+        parameter_values = [parameters.get(param.name(), param) for param in self._mx["parameters"]]
 
         # Load additional bounds from model
         for v in itertools.chain(
-            self.__pymoca_model.states, self.__pymoca_model.alg_states, self.__pymoca_model.inputs
+            self._pymoca_model.states, self._pymoca_model.alg_states, self._pymoca_model.inputs
         ):
             sym_name = v.symbol.name()
 
@@ -357,7 +353,7 @@ class ModelicaMixin(OptimizationProblem):
             m_ = v.min
             if isinstance(m_, ca.MX) and not m_.is_constant():
                 [m_] = substitute_in_external(
-                    [m_], self.__mx["parameters"], parameter_values, resolve_numerically=True
+                    [m_], self._mx["parameters"], parameter_values, resolve_numerically=True
                 )
                 if not m_.is_constant() or np.isnan(float(m_)):
                     raise Exception(f"Could not resolve lower bound for variable {sym_name}")
@@ -366,7 +362,7 @@ class ModelicaMixin(OptimizationProblem):
             M_ = v.max
             if isinstance(M_, ca.MX) and not M_.is_constant():
                 [M_] = substitute_in_external(
-                    [M_], self.__mx["parameters"], parameter_values, resolve_numerically=True
+                    [M_], self._mx["parameters"], parameter_values, resolve_numerically=True
                 )
                 if not M_.is_constant() or np.isnan(float(M_)):
                     raise Exception(f"Could not resolve upper bound for variable {sym_name}")
@@ -387,12 +383,10 @@ class ModelicaMixin(OptimizationProblem):
 
         # Parameter values
         parameters = self.parameters(ensemble_member)
-        parameter_values = [
-            parameters.get(param.name(), param) for param in self.__mx["parameters"]
-        ]
+        parameter_values = [parameters.get(param.name(), param) for param in self._mx["parameters"]]
 
         # Load seeds
-        for var in itertools.chain(self.__pymoca_model.states, self.__pymoca_model.alg_states):
+        for var in itertools.chain(self._pymoca_model.states, self._pymoca_model.alg_states):
             if var.fixed:
                 # Values will be set from import timeseries
                 continue
@@ -405,7 +399,7 @@ class ModelicaMixin(OptimizationProblem):
                 # If start contains symbolics, try substituting parameter values
                 if isinstance(start, ca.MX) and not start.is_constant():
                     [start] = substitute_in_external(
-                        [start], self.__mx["parameters"], parameter_values, resolve_numerically=True
+                        [start], self._mx["parameters"], parameter_values, resolve_numerically=True
                     )
                     if not start.is_constant() or np.isnan(float(start)):
                         logger.error(f"ModelicaMixin: Could not resolve seed value for {sym_name}")
@@ -426,7 +420,7 @@ class ModelicaMixin(OptimizationProblem):
     @property
     @cached
     def alias_relation(self):
-        return self.__pymoca_model.alias_relation
+        return self._pymoca_model.alias_relation
 
     @property
     @cached
@@ -436,13 +430,11 @@ class ModelicaMixin(OptimizationProblem):
 
         # Grab parameters and their values
         parameters = self.parameters(0)
-        parameter_values = [
-            parameters.get(param.name(), param) for param in self.__mx["parameters"]
-        ]
+        parameter_values = [parameters.get(param.name(), param) for param in self._mx["parameters"]]
 
         # Iterate over nominalizable states
         for v in itertools.chain(
-            self.__pymoca_model.states, self.__pymoca_model.alg_states, self.__pymoca_model.inputs
+            self._pymoca_model.states, self._pymoca_model.alg_states, self._pymoca_model.inputs
         ):
             sym_name = v.symbol.name()
             nominal = v.nominal
@@ -450,7 +442,7 @@ class ModelicaMixin(OptimizationProblem):
             # If nominal contains parameter symbols, substitute them
             if isinstance(nominal, ca.MX) and not nominal.is_constant():
                 [nominal] = substitute_in_external(
-                    [nominal], self.__mx["parameters"], parameter_values, resolve_numerically=True
+                    [nominal], self._mx["parameters"], parameter_values, resolve_numerically=True
                 )
                 if not nominal.is_constant() or np.isnan(float(nominal)):
                     logger.error(f"ModelicaMixin: Could not resolve nominal value for {sym_name}")
