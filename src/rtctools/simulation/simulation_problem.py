@@ -49,6 +49,9 @@ class SimulationProblem(_ModelicaMixinBase, DataStoreAccessor):
 
     :cvar modelica_library_folders: Folders containing any referenced Modelica libraries. Default
         is an empty list.
+    :cvar model_format: What the model folder provides: ``"modelica"`` (default), the Modelica
+        files, or ``"basemodelica"``, ``<model_name>.bmo``, as for
+        :py:class:`ModelicaMixin <rtctools.optimization.modelica_mixin.ModelicaMixin>`.
 
     """
 

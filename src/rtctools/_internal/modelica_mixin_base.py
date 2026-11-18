@@ -11,6 +11,36 @@ from .caching import cached
 logger = logging.getLogger("rtctools")
 
 
+def transfer_with_cache_retry(transfer_model, model_folder, model_name, compiler_options):
+    """Load the model with transfer_model; if loading it from a cache file fails, compile it."""
+    logger.info(f"Loading/compiling model {model_name}.")
+    try:
+        return transfer_model(model_folder, model_name, compiler_options)
+    except (RuntimeError, ModuleNotFoundError) as error:
+        if not compiler_options.get("cache", False):
+            raise error
+        compiler_options["cache"] = False
+        logger.warning(f"Loading model {model_name} using a cache file failed: {error}.")
+        logger.info(f"Compiling model {model_name}.")
+        return transfer_model(model_folder, model_name, compiler_options)
+
+
+# What the model folder provides, the values of model_format: the Modelica sources, or the model
+# flattened to Base Modelica in <model_name>.bmo
+MODEL_FORMATS = {"modelica": "the Modelica sources", "basemodelica": "Base Modelica"}
+
+
+def _model_format(cls):
+    """The model_format of the problem class cls, checked"""
+    model_format = cls.model_format
+    if model_format not in MODEL_FORMATS:
+        raise ValueError(
+            f"{cls.__name__}.model_format is {model_format!r}, but it is "
+            f"{' or '.join(repr(f) for f in MODEL_FORMATS)}"
+        )
+    return model_format
+
+
 class _ModelicaMixinBase:
     """
     The Modelica front end shared by ``ModelicaMixin`` and ``SimulationProblem``: it compiles
@@ -21,7 +51,13 @@ class _ModelicaMixinBase:
     :py:meth:`_init_from_model` and :py:meth:`_init_after_residuals`. ``super().__init__()``
     comes last, so that the rest of the chain finds the model data in place. Each class defines
     its own ``modelica_library_folders``.
+
+    :cvar model_format:
+        What the model folder provides: ``"modelica"`` (default) or ``"basemodelica"``.
     """
+
+    # What the model folder provides: "modelica" or "basemodelica"
+    model_format = "modelica"
 
     def __init__(self, **kwargs):
         # Check arguments
@@ -39,6 +75,7 @@ class _ModelicaMixinBase:
             else:
                 model_name = self.__class__.__name__
 
+        _model_format(type(self))
         model = self._pymoca_model = self.pymoca_model(
             kwargs["model_folder"], model_name, self.compiler_options()
         )
@@ -143,8 +180,8 @@ class _ModelicaMixinBase:
         self, model_folder: str, model_name: str, compiler_options: dict[str, str | bool]
     ) -> pymoca.backends.casadi.model.Model:
         """
-        Load or compile the model named ``model_name`` from the Modelica files in
-        ``model_folder``.
+        Load or compile the model named ``model_name`` from ``model_folder`` with pymoca: from
+        the Modelica files, or with ``model_format = "basemodelica"`` from ``<model_name>.bmo``.
 
         Override this method to supply a model from elsewhere, e.g. one composed in memory.
         The model is requested once, from ``__init__``.
@@ -155,20 +192,11 @@ class _ModelicaMixinBase:
 
         :returns: A pymoca CasADi model.
         """
-        logger.info(f"Loading/compiling model {model_name}.")
-        try:
-            return pymoca.backends.casadi.api.transfer_model(
-                model_folder, model_name, compiler_options
-            )
-        except (RuntimeError, ModuleNotFoundError) as error:
-            if not compiler_options.get("cache", False):
-                raise error
-            compiler_options["cache"] = False
-            logger.warning(f"Loading model {model_name} using a cache file failed: {error}.")
-            logger.info(f"Compiling model {model_name}.")
-            return pymoca.backends.casadi.api.transfer_model(
-                model_folder, model_name, compiler_options
-            )
+        if _model_format(type(self)) == "basemodelica":
+            from rtctools.model._pymoca_basemodelica import _transfer_model as transfer
+        else:
+            transfer = pymoca.backends.casadi.api.transfer_model
+        return transfer_with_cache_retry(transfer, model_folder, model_name, compiler_options)
 
     @cached
     def compiler_options(self) -> dict[str, str | bool]:
