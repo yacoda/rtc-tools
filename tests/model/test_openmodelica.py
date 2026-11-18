@@ -8,9 +8,9 @@ the PATH) has that version, and is skipped otherwise. It requires the Modelica S
 
     omc tests/modelica/install_msl.mos
 
-- The flattening: omc writes <model>.bmo for examples, also from a relative model folder.
-  With an rtc-tools-channel-flow whose library omc refuses, channel_pulse is an expected
-  failure.
+- The flattening: omc writes <model>.bmo for examples, also from a relative model folder, and
+  with the cache a second flattening reuses it. With an rtc-tools-channel-flow whose library
+  omc refuses, channel_pulse is an expected failure.
 - End to end: the basic example solved through the flattener, so pymoca reading the .bmo, gives
   the results of the Modelica sources read by pymoca, with ModelicaMixin and SimulationProblem.
   pymoca reads Base Modelica with its unquote_identifiers option; these tests are skipped with a
@@ -137,6 +137,18 @@ def test_flatten_relative_folders(folder, monkeypatch):
     monkeypatch.chdir(folder)
     libraries = [os.path.relpath(f, folder) for f in library_folders()]
     check_bmo(flatten("model", libraries), "storage.V")
+
+
+def test_flatten_cached(folder, caplog):
+    # The second flattening with the cache reuses the file of the first
+    copy_example("basic", folder)
+    path = flatten(str(folder / "model"), library_folders(), cache=True)
+    check_bmo(path, "storage.V")
+    assert (folder / "model" / "Example.bmo_cache").is_file()
+    caplog.set_level("INFO", "rtctools")
+    caplog.clear()
+    assert flatten(str(folder / "model"), library_folders(), cache=True) == path
+    assert "Reusing" in caplog.text
 
 
 def pymoca_reads_base_modelica():
