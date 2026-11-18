@@ -221,3 +221,77 @@ bounds over the entire time horizon and end with a full reservoir.
 Feel free to experiment with this example. See what happens if you change the
 max of ``Q_release`` (in the Modelica file) or if you make the objective
 function negative (in the python script).
+
+.. _optimization-basic-routes:
+
+Choosing How RTC-Tools Reads the Model
+--------------------------------------
+
+So far, RTC-Tools has read the model the default way: :py:class:`ModelicaMixin
+<rtctools.optimization.modelica_mixin.ModelicaMixin>` parses the Modelica files in the ``model``
+folder with pymoca and turns them into an optimization problem. The same ``Example.mo`` can
+also reach RTC-Tools along other routes; the objective, the constraints and the rest of the
+script stay as they are.
+
+The class attribute ``model_format`` says what the ``model`` folder provides:
+
+* ``"modelica"`` (default): the Modelica files.
+* ``"basemodelica"``: ``Example.bmo``, the model flattened to Base Modelica, the simplified
+  form of Modelica that tools exchange, for example by OpenModelica.
+
+pymoca reads either. Mixins of ``rtctools.model``, added to the bases of the class before
+``ModelicaMixin``, change that:
+
+* A **flattener** writes ``Example.bmo`` from the Modelica files at the start of a run, and
+  sets ``model_format = "basemodelica"``: ``OpenModelicaFlattenerMixin`` with OpenModelica
+  (``omc``).
+
+With the compiler option ``cache`` (the default), a flattener records what it flattened from in
+``Example.bmo_cache``, next to ``Example.bmo``, and skips the tool on the next run when nothing
+changed: the Modelica files of the model and library folders, the flags, and the version of the
+tool.
+
+For example, to let OpenModelica flatten the model and pymoca read the result, the class of this
+example becomes:
+
+.. code-block:: python
+
+    from rtctools.model.openmodelica_flattener_mixin import OpenModelicaFlattenerMixin
+
+
+    class Example(
+        OpenModelicaFlattenerMixin,
+        CSVMixin,
+        ModelicaMixin,
+        CollocatedIntegratedOptimizationProblem,
+    ):
+        ...
+
+To read an ``Example.bmo`` that is already there, set ``model_format = "basemodelica"`` in the
+class instead. RTC-Tools refuses a class with two flatteners, or with a flattener and
+``model_format = "modelica"``. The same works with ``SimulationProblem``.
+
+All these routes end in the same kind of model, so they solve the same optimization problem
+and take about as long as the default.
+
+Which Route to Choose
+'''''''''''''''''''''
+
+* **Start with the default** (``ModelicaMixin`` alone, with pymoca). It needs nothing but
+  the Python packages, and the examples are written for it.
+* **Base Modelica** helps when another tool, such as OpenModelica, should flatten the model:
+  for a library that pymoca does not parse, or to check that two tools read a model the same
+  way.
+
+What each route needs installed:
+
+===================================  ==========================================================
+Route                                Needs
+===================================  ==========================================================
+the default                          the RTC-Tools Python packages
+``model_format = "basemodelica"``    a pymoca with the ``unquote_identifiers`` compiler option
+``OpenModelicaFlattenerMixin``        the ``omc`` command (``RTCTOOLS_OMC``)
+===================================  ==========================================================
+
+This example solves on every route with the same result. For a larger model, check that a
+route gives the same answer as the default before relying on it.
