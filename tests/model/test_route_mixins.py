@@ -1,9 +1,109 @@
-"""model_format in a problem class: the model is loaded from what model_format says, and an
-unknown model_format is refused."""
+"""model_format and the route mixins in a problem class: what the guard refuses, when the class
+is defined or when it is instantiated, and that the model is loaded from what model_format says."""
 
 import tempfile
 import unittest
 from pathlib import Path
+
+from rtctools._internal.modelica_mixin_base import _check_model_route, _ModelicaMixinBase
+
+
+class Flattener:
+    _modelica_route = "flattener"
+    model_format = "basemodelica"
+
+
+class OtherFlattener:
+    _modelica_route = "flattener"
+    model_format = "basemodelica"
+
+
+class ModelicaReader:
+    _modelica_route = "reader"
+    _modelica_reads = "modelica"
+
+
+class BaseModelicaReader:
+    _modelica_route = "reader"
+    _modelica_reads = "basemodelica"
+
+
+def compose(*bases, **attributes):
+    return type("Example", (*bases, _ModelicaMixinBase), attributes)
+
+
+BASEMODELICA = {"model_format": "basemodelica"}
+
+
+class GuardTest(unittest.TestCase):
+    def test_allowed(self):
+        for bases, attributes in [
+            ((), {}),
+            ((), BASEMODELICA),
+            ((ModelicaReader,), {}),
+            ((BaseModelicaReader,), BASEMODELICA),
+            ((Flattener,), {}),
+            ((Flattener, BaseModelicaReader), {}),
+        ]:
+            _check_model_route(compose(*bases, **attributes))
+
+    def test_subclass_of_a_route(self):
+        # The markers count where they are declared, not where they are inherited
+        route = compose(Flattener, BaseModelicaReader)
+        _check_model_route(type("Sub", (route,), {}))
+
+    # Two readers, two flatteners or a flattener after the reader: no subclass can repair
+    # that, so the class is refused when it is defined
+
+    def test_two_readers(self):
+        with self.assertRaisesRegex(TypeError, "more than one model reader"):
+            compose(BaseModelicaReader, ModelicaReader, **BASEMODELICA)
+
+    def test_refused_in_a_subclass(self):
+        # A subclass that adds a second route mixin to a valid class is refused when defined
+        route = compose(Flattener, BaseModelicaReader)
+        with self.assertRaisesRegex(TypeError, "more than one model flattener"):
+            type("Sub", (OtherFlattener, route), {})
+        with self.assertRaisesRegex(TypeError, "more than one model reader"):
+            type("Sub", (ModelicaReader, route), {})
+        reader = compose(BaseModelicaReader, **BASEMODELICA)
+        with self.assertRaisesRegex(TypeError, "put the flattener first"):
+            type("Sub", (reader, Flattener), {})
+
+    def test_layered_route(self):
+        # A reader in a base class, and the model_format it reads in a subclass: by the
+        # flattener put in front, or set. model_format is only checked on instantiation.
+        base = compose(BaseModelicaReader)
+        with self.assertRaisesRegex(TypeError, "reads Base Modelica"):
+            _check_model_route(base)
+        _check_model_route(type("Sub", (Flattener, base), {}))
+        _check_model_route(type("Sub", (base,), BASEMODELICA))
+
+    def test_reader_of_basemodelica_with_modelica(self):
+        with self.assertRaisesRegex(
+            TypeError,
+            "BaseModelicaReader, which reads Base Modelica .*"
+            r"model_format is 'modelica' \(set by _ModelicaMixinBase\) "
+            r'\(set model_format = "basemodelica"\)',
+        ):
+            _check_model_route(compose(BaseModelicaReader))
+        with self.assertRaisesRegex(TypeError, "reads the Modelica sources"):
+            _check_model_route(compose(ModelicaReader, **BASEMODELICA))
+
+    def test_flattener_with_model_format_modelica(self):
+        # model_format set back to "modelica" below the flattener: its file would not be read
+        with self.assertRaisesRegex(
+            TypeError,
+            r"flattener Flattener, but model_format is 'modelica' \(set by Example\)",
+        ):
+            _check_model_route(compose(Flattener, model_format="modelica"))
+
+    def test_unknown_model_format(self):
+        for bases in [(), (Flattener,), (BaseModelicaReader,)]:
+            with self.assertRaisesRegex(
+                ValueError, "model_format is 'bmo', but it is 'modelica' or 'basemodelica'"
+            ):
+                _check_model_route(compose(*bases, model_format="bmo"))
 
 
 def _pymoca_reads_basemodelica():
@@ -61,11 +161,22 @@ class ProblemTest(unittest.TestCase):
     def simulation_problem(self, *mixins, model_format=None):
         return self.simulation_class(*mixins, model_format=model_format)(model_folder=self.folder())
 
+    def test_refused_when_defined(self):
+        # No subclass can repair these, so the class statement fails, before any loading
+        for make in (self.optimization_class, self.simulation_class):
+            with self.assertRaisesRegex(TypeError, "put the flattener first"):
+                make(BaseModelicaReader, Flattener)
+            with self.assertRaisesRegex(TypeError, "more than one model flattener"):
+                make(Flattener, OtherFlattener)
+            with self.assertRaisesRegex(TypeError, "more than one model reader"):
+                make(BaseModelicaReader, ModelicaReader)
+
     def test_refused_when_instantiated(self):
-        # A subclass could still set model_format, so the class is defined; its instance is
-        # refused before loading
+        # A subclass could still set model_format, so the class is defined; the guard refuses
+        # its instance before loading
         for make in (self.optimization_class, self.simulation_class):
             for mixins, model_format, error, message in [
+                ((BaseModelicaReader,), None, TypeError, "reads Base Modelica"),
                 ((), "bmo", ValueError, "model_format is 'bmo'"),
             ]:
                 problem_class = make(*mixins, model_format=model_format)
