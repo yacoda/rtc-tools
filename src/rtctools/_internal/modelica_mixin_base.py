@@ -41,6 +41,83 @@ def _model_format(cls):
     return model_format
 
 
+def _route_mixins(cls):
+    """
+    The readers and the flatteners among the route mixins of ``rtctools.model`` in the
+    bases of the problem class cls, in the order of its MRO.
+
+    A route mixin says what it is in its own class body: ``_modelica_route = "reader"`` or
+    ``"flattener"``. A flattener sets ``model_format = "basemodelica"``, writes
+    ``<model_name>.bmo`` and then calls the next ``pymoca_model()``. A reader says which
+    ``model_format`` it reads, ``_modelica_reads = "modelica"`` or ``"basemodelica"``, loads the
+    model and calls no further.
+    """
+
+    def declared(kind):
+        return [c for c in cls.__mro__ if c.__dict__.get("_modelica_route") == kind]
+
+    return declared("reader"), declared("flattener")
+
+
+def _check_route_mixins(cls):
+    """
+    Raise a TypeError for route mixins that would not all take part, in any subclass of cls:
+    two readers, two flatteners, or a flattener after the reader. Called when the class is
+    defined.
+    """
+    readers, flatteners = _route_mixins(cls)
+    mro = cls.__mro__
+
+    def names(classes):
+        return ", ".join(c.__name__ for c in classes)
+
+    if len(readers) > 1:
+        raise TypeError(
+            f"{cls.__name__} has more than one model reader ({names(readers)}): only the "
+            "first would load the model"
+        )
+    if len(flatteners) > 1:
+        raise TypeError(
+            f"{cls.__name__} has more than one model flattener ({names(flatteners)}): each would "
+            "overwrite the Base Modelica file of the other"
+        )
+    if flatteners and readers and mro.index(flatteners[0]) > mro.index(readers[0]):
+        raise TypeError(
+            f"{cls.__name__} lists the flattener {flatteners[0].__name__} after the reader "
+            f"{readers[0].__name__}, so it would never run: put the flattener first"
+        )
+
+
+def _check_model_route(cls):
+    """
+    Raise a TypeError for route mixins that do not fit the ``model_format`` of the problem class
+    cls, and a ValueError for an unknown ``model_format``. Called when the problem is
+    instantiated, as a subclass may still set ``model_format`` or add the flattener.
+    """
+    model_format = _model_format(cls)
+    readers, flatteners = _route_mixins(cls)
+
+    def format_source():
+        # The class that sets model_format, for the messages
+        source = next(c for c in cls.__mro__ if "model_format" in c.__dict__)
+        return f"model_format is {model_format!r} (set by {source.__name__})"
+
+    if flatteners and model_format != "basemodelica":
+        raise TypeError(
+            f"{cls.__name__} has the flattener {flatteners[0].__name__}, but {format_source()}, so "
+            "the Base Modelica file that it writes would not be read"
+        )
+    if readers:
+        reader = readers[0]
+        reads = reader.__dict__["_modelica_reads"]
+        if reads != model_format:
+            hint = "" if flatteners else f' (set model_format = "{reads}")'
+            raise TypeError(
+                f"{cls.__name__} has the reader {reader.__name__}, which reads "
+                f"{MODEL_FORMATS[reads]} (model_format {reads!r}), but {format_source()}{hint}"
+            )
+
+
 class _ModelicaMixinBase:
     """
     The Modelica front end shared by ``ModelicaMixin`` and ``SimulationProblem``: it compiles
@@ -52,12 +129,22 @@ class _ModelicaMixinBase:
     comes last, so that the rest of the chain finds the model data in place. Each class defines
     its own ``modelica_library_folders``.
 
+    The route mixins of :py:mod:`rtctools.model` in the bases are checked in two steps. A
+    class with two readers, two flatteners or a flattener after the reader is refused with a
+    TypeError when it is defined, as no subclass can repair that. Whether the flattener and the
+    reader fit ``model_format`` is checked when the problem is instantiated, as a subclass may
+    still set ``model_format`` or put a flattener in front of a base class with a reader.
+
     :cvar model_format:
         What the model folder provides: ``"modelica"`` (default) or ``"basemodelica"``.
     """
 
     # What the model folder provides: "modelica" or "basemodelica"
     model_format = "modelica"
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        _check_route_mixins(cls)
 
     def __init__(self, **kwargs):
         # Check arguments
@@ -75,7 +162,7 @@ class _ModelicaMixinBase:
             else:
                 model_name = self.__class__.__name__
 
-        _model_format(type(self))
+        _check_model_route(type(self))
         model = self._mo_pymoca_model = self.pymoca_model(
             kwargs["model_folder"], model_name, self.compiler_options()
         )
@@ -184,7 +271,8 @@ class _ModelicaMixinBase:
         the Modelica files, or with ``model_format = "basemodelica"`` from ``<model_name>.bmo``.
 
         Override this method to supply a model from elsewhere, e.g. one composed in memory.
-        The model is requested once, from ``__init__``.
+        The model is requested once, from ``__init__``. The mixins of :py:mod:`rtctools.model`
+        override it to read the model another way.
 
         :param model_folder: Folder containing the Modelica files.
         :param model_name: Name of the model class to compile.
